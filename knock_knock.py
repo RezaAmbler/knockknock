@@ -57,19 +57,54 @@ class Colors:
     RESET = '\033[0m'
 
 
-def setup_logging(quiet: bool = False) -> None:
+def setup_logging(quiet: bool = False, debug: bool = False) -> None:
     """
     Configure logging with appropriate level and format.
 
     Args:
         quiet: If True, only show WARNING and ERROR messages
+        debug: If True, show DEBUG level messages and log to tmp/debug.log
     """
-    level = logging.WARNING if quiet else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    if debug:
+        level = logging.DEBUG
+    elif quiet:
+        level = logging.WARNING
+    else:
+        level = logging.INFO
+
+    # Create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(level)
+    console_handler.setFormatter(formatter)
+
+    # Get root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    root_logger.addHandler(console_handler)
+
+    # If debug mode, also log to file
+    if debug:
+        # Ensure tmp/ directory exists
+        tmp_dir = Path('tmp')
+        tmp_dir.mkdir(exist_ok=True)
+
+        # Create timestamped log file
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        log_file = tmp_dir / f'debug-{timestamp}.log'
+
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+
+        # Log the file location
+        root_logger.info(f"Debug logging enabled - writing to {log_file}")
 
 
 def display_pps_warning(
@@ -179,10 +214,19 @@ The tool will:
         help='Send a test email and exit (validates SMTP configuration)'
     )
 
-    scan_group.add_argument(
+    # Verbosity arguments (mutually exclusive)
+    verbosity_group = scan_group.add_mutually_exclusive_group()
+
+    verbosity_group.add_argument(
         '--quiet',
         action='store_true',
         help='Reduce log output (only show warnings and errors)'
+    )
+
+    verbosity_group.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable debug logging (shows commands, detailed errors, and diagnostics)'
     )
 
     # Database arguments
@@ -660,8 +704,8 @@ def main() -> None:
     # Parse arguments first to get quiet flag
     args = parse_arguments()
 
-    # Setup logging with quiet flag
-    setup_logging(quiet=args.quiet)
+    # Setup logging with quiet/debug flags
+    setup_logging(quiet=args.quiet, debug=args.debug)
     logger = logging.getLogger(__name__)
 
     logger.info("=" * 80)

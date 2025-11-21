@@ -113,7 +113,8 @@ def run_masscan(
             '--output-filename', str(output_path)
         ]
 
-        logger.debug(f"Running masscan: {' '.join(cmd)}")
+        # Debug: Log command before execution
+        logger.debug(f"[{ip}] Executing masscan: {' '.join(cmd)}")
 
         result = subprocess.run(
             cmd,
@@ -124,8 +125,20 @@ def run_masscan(
 
         # masscan may return non-zero even on success, check if output file exists
         if not output_path.exists():
-            error_msg = "masscan did not create JSON output file"
-            logger.error(f"masscan scan failed for {ip}: {error_msg}")
+            logger.error(f"[{ip}] masscan did not create output file (rc={result.returncode})")
+
+            # Debug: Show detailed diagnostics
+            logger.debug(f"[{ip}] masscan return code: {result.returncode}")
+            if result.stdout:
+                logger.debug(f"[{ip}] masscan stdout: {result.stdout.strip()}")
+            if result.stderr:
+                logger.debug(f"[{ip}] masscan stderr: {result.stderr.strip()}")
+
+            # Build error message
+            error_msg = f"masscan failed (rc={result.returncode})"
+            if result.stderr:
+                error_msg += f": {result.stderr.strip()}"
+
             return False, [], error_msg
 
         # Parse JSON output to extract open ports
@@ -231,7 +244,10 @@ def run_nmap_scan(
         # Construct nmap command with automatic XML output
         cmd = [nmap_binary] + filtered_args + port_args + ['-oX', str(output_path), ip]
 
-        logger.debug(f"Running nmap: {' '.join(cmd)}")
+        # Debug: Log command and context
+        logger.debug(f"[{ip}] Executing nmap: {' '.join(cmd)}")
+        if ports:
+            logger.debug(f"[{ip}] Analyzing {len(ports)} ports discovered by masscan")
 
         result = subprocess.run(
             cmd,
@@ -241,10 +257,18 @@ def run_nmap_scan(
         )
 
         if result.returncode != 0:
+            logger.error(f"[{ip}] nmap failed with return code {result.returncode}")
+
+            # Debug: Show detailed diagnostics
+            logger.debug(f"[{ip}] nmap return code: {result.returncode}")
+            if result.stdout:
+                logger.debug(f"[{ip}] nmap stdout: {result.stdout.strip()[:500]}")  # Limit output
+            if result.stderr:
+                logger.debug(f"[{ip}] nmap stderr: {result.stderr.strip()[:500]}")  # Limit output
+
             error_msg = f"nmap exited with code {result.returncode}"
             if result.stderr:
                 error_msg += f": {result.stderr[:200]}"
-            logger.error(f"nmap scan failed for {ip}: {error_msg}")
             return False, error_msg
 
         # Verify XML file was created
@@ -362,7 +386,8 @@ def run_ssh_audit(
     try:
         cmd = [ssh_audit_binary, '-j', f'{ip}:{port}']
 
-        logger.debug(f"Running ssh-audit: {' '.join(cmd)}")
+        # Debug: Log command before execution
+        logger.debug(f"[{ip}:{port}] Executing ssh-audit: {' '.join(cmd)}")
 
         proc_result = subprocess.run(
             cmd,
@@ -418,17 +443,25 @@ def run_ssh_audit(
 
             except json.JSONDecodeError as e:
                 result.error = f"Failed to parse ssh-audit JSON output: {e}"
-                logger.error(f"ssh-audit JSON parse error for {ip}:{port}: {e}")
+                logger.warning(f"[{ip}:{port}] ssh-audit: {result.error}")
+
+                # Debug: Show the problematic output
+                logger.debug(f"[{ip}:{port}] ssh-audit return code: {proc_result.returncode}")
+                logger.debug(f"[{ip}:{port}] ssh-audit stdout (first 1000 chars): {proc_result.stdout[:1000]}")
+                if proc_result.stderr:
+                    logger.debug(f"[{ip}:{port}] ssh-audit stderr: {proc_result.stderr.strip()}")
         else:
             result.error = "ssh-audit produced no output"
             logger.warning(f"ssh-audit produced no output for {ip}:{port}")
 
     except subprocess.TimeoutExpired:
         result.error = "ssh-audit timed out after 60 seconds"
-        logger.error(f"ssh-audit timeout for {ip}:{port}")
+        logger.warning(f"[{ip}:{port}] ssh-audit timed out after 60 seconds")
+        logger.debug(f"[{ip}:{port}] ssh-audit timeout (command: {' '.join(cmd)})")
     except Exception as e:
         result.error = f"Unexpected error: {str(e)}"
-        logger.error(f"ssh-audit unexpected error for {ip}:{port}: {e}")
+        logger.warning(f"[{ip}:{port}] ssh-audit unexpected error: {e}")
+        logger.debug(f"[{ip}:{port}] ssh-audit exception details: {type(e).__name__}: {e}")
 
     return result
 
@@ -555,6 +588,19 @@ def scan_host(
     # Parse nmap results
     result.open_ports = parse_nmap_xml(nmap_xml_path)
     logger.info(f"[{ip}] nmap detailed scan complete: {len(result.open_ports)} ports analyzed")
+
+    # Debug: Log port discrepancy between masscan and nmap
+    masscan_count = len(open_ports)
+    nmap_count = len(result.open_ports)
+    if masscan_count > 0:
+        if nmap_count < masscan_count:
+            discrepancy = masscan_count - nmap_count
+            logger.debug(
+                f"[{ip}] Port discrepancy: masscan found {masscan_count} ports, "
+                f"nmap confirmed {nmap_count} open ({discrepancy} were closed/filtered)"
+            )
+        elif nmap_count == masscan_count:
+            logger.debug(f"[{ip}] All {masscan_count} masscan ports confirmed open by nmap")
 
     # Stage 3: Run ssh-audit on configured SSH ports (only if they're open)
     logger.info(f"[{ip}] Stage 3: Checking for SSH services")
