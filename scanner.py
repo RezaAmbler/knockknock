@@ -248,7 +248,13 @@ def run_nmap_scan(
             return True, None
 
         # Construct nmap command with automatic XML output
-        cmd = [nmap_binary] + filtered_args + port_args + ['-oX', str(output_path), ip]
+        # Check if -sS (SYN scan) is present, which requires sudo
+        needs_sudo = '-sS' in filtered_args
+
+        if needs_sudo:
+            cmd = ['sudo', nmap_binary] + filtered_args + port_args + ['-oX', str(output_path), ip]
+        else:
+            cmd = [nmap_binary] + filtered_args + port_args + ['-oX', str(output_path), ip]
 
         # Debug: Log command and context
         logger.debug(f"[{ip}] Executing nmap: {' '.join(cmd)}")

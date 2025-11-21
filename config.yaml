@@ -62,14 +62,16 @@ nmap:
   # The port list is automatically generated from masscan results.
   #
   # Recommended arguments:
+  #   -sS         : SYN scan (requires sudo, more reliable than connect scan)
   #   -sV         : Version detection (probe open ports to determine service/version)
   #   -sC         : Run default NSE scripts (safe, useful scripts)
   #   -T4         : Timing template "aggressive" (faster scanning)
   #   -Pn         : Skip host discovery (treat all hosts as online)
   #
   # For quieter/stealthier scanning:
-  #   args: ["-sV", "-sC", "-T2", "-Pn"]   # Slower timing
+  #   args: ["-sS", "-sV", "-sC", "-T2", "-Pn"]   # Slower timing
   args:
+    - "-sS"
     - "-sV"
     - "-sC"
     - "-T2"
