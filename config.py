@@ -118,6 +118,17 @@ class Config:
         """Email subject line prefix."""
         return self._config.get('email', {}).get('subject_prefix', 'Knock Knock Security Scan')
 
+    # Database settings
+    @property
+    def database_enabled(self) -> bool:
+        """Whether database logging is enabled."""
+        return self._config.get('database', {}).get('enabled', False)
+
+    @property
+    def database_path(self) -> str:
+        """Path to SQLite database file."""
+        return self._config.get('database', {}).get('path', '/var/lib/knockknock/knockknock.db')
+
     # Reporting settings
     @property
     def ports_of_interest(self) -> List[int]:

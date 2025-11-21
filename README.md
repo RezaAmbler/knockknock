@@ -17,7 +17,7 @@ A production-quality command-line security scanning tool that uses a two-stage s
 - **Robust Error Handling**: Gracefully handles timeouts, connection failures, and errors
 - **Cron-Ready**: Designed for automated weekly/daily scanning
 
-## Quick Start
+## sou Start
 
 The easiest way to get started is to use the automated setup script:
 
@@ -237,10 +237,10 @@ Create a CSV file with device names and WAN IPs:
 
 ```csv
 device_name,wan_ip
-DAL1-FW1,64.255.192.53
-DAL1-FW1,45.205.47.82
-LAX1-FW1,203.0.113.10
-NYC1-RTR1,198.51.100.5
+SITE1-FW1,192.0.2.10
+SITE1-FW1,192.0.2.11
+SITE2-FW1,198.51.100.20
+SITE3-RTR1,203.0.113.30
 ```
 
 ### CSV Requirements
@@ -257,9 +257,9 @@ Create `targets.csv`:
 
 ```csv
 device_name,wan_ip
-DAL1-FW1,64.255.192.53
-DAL1-FW1,45.205.47.82
-LAX1-FW1,203.0.113.10
+SITE1-FW1,192.0.2.10
+SITE1-FW1,192.0.2.11
+SITE2-FW1,198.51.100.20
 ```
 
 ## Usage
@@ -294,6 +294,115 @@ python3 knock_knock.py --targets targets.csv --html-report weekly-scan.html
 - **0**: Success (even if some hosts had errors, but overall scan completed)
 - **1**: Fatal error (CSV not found, tools missing, invalid SMTP config when --send-email specified)
 - **130**: Interrupted by user (Ctrl+C)
+
+## Database Logging and Historical Reporting
+
+Knock Knock can optionally log all scan results to a SQLite database for historical tracking and trend analysis.
+
+### Configuring Database Logging
+
+Edit `config.yaml`:
+
+```yaml
+database:
+  enabled: true
+  path: "/var/lib/knockknock/knockknock.db"
+```
+
+Or use command-line flags:
+
+```bash
+# Enable database logging for this run (overrides config)
+python3 knock_knock.py --targets targets.csv --db-path /path/to/database.db
+
+# Explicitly disable database logging (even if enabled in config)
+python3 knock_knock.py --targets targets.csv --no-db
+```
+
+**Precedence**:
+1. `--no-db` disables database logging
+2. `--db-path PATH` enables logging to specified path
+3. `database.enabled: true` in config.yaml uses `database.path`
+
+### Database Behavior
+
+- **Append-only**: All scan runs are recorded; nothing is ever deleted
+- **Never fails scans**: Database errors are logged as warnings but don't stop scanning
+- **Automatic schema creation**: Database and tables are created automatically on first use
+
+### Viewing Historical Reports
+
+Query the database for historical port information across time ranges:
+
+```bash
+# Show all open ports observed in January 2025
+python3 knock_knock.py --report ports \
+  --from 2025-01-01T00:00:00Z \
+  --to   2025-01-31T23:59:59Z \
+  --db-path /var/lib/knockknock/knockknock.db
+
+# Show ports for a specific host
+python3 knock_knock.py --report ports \
+  --from 2025-01-01T00:00:00Z \
+  --to   2025-01-31T23:59:59Z \
+  --host site1-fw1 \
+  --db-path /var/lib/knockknock/knockknock.db
+
+# Show only port 22 (SSH) across all hosts
+python3 knock_knock.py --report ports \
+  --from 2025-01-01T00:00:00Z \
+  --to   2025-01-31T23:59:59Z \
+  --port 22 \
+  --db-path /var/lib/knockknock/knockknock.db
+
+# Export to CSV format
+python3 knock_knock.py --report ports \
+  --from 2025-01-01T00:00:00Z \
+  --to   2025-01-31T23:59:59Z \
+  --output csv \
+  --db-path /var/lib/knockknock/knockknock.db > ports-january.csv
+```
+
+### Report Output
+
+The ports report shows:
+
+- **Hostname** and **IP address**
+- **Port** and **Protocol**
+- **First Seen**: Earliest scan in time range where port was observed
+- **Last Seen**: Most recent scan in time range where port was observed
+- **Runs Count**: Number of scans in time range that detected this port
+- **Product** and **Version**: From most recent scan (if detected)
+
+Example output:
+
+```
+HOSTNAME        IP           PORT PROTO FIRST_SEEN              LAST_SEEN               RUNS PRODUCT          VERSION
+--------------  -----------  ---- ----- ----------------------- ----------------------- ---- ---------------  --------------
+site1-fw1       192.0.2.10   22   tcp   2025-01-01T01:00:05Z    2025-01-31T23:00:10Z    124  OpenSSH          9.5p1
+site1-fw1       192.0.2.10   443  tcp   2025-01-01T01:00:05Z    2025-01-31T23:00:10Z    124  nginx            1.24.0
+site2-fw1       198.51.100.20 22  tcp   2025-01-15T00:15:02Z    2025-01-31T23:00:08Z    68   OpenSSH          8.9p1
+
+Total: 3 unique port(s)
+```
+
+### Time Range Defaults
+
+- `--from`: Defaults to earliest run in database
+- `--to`: Defaults to current time (UTC)
+- **Format**: ISO-8601 with Z suffix (e.g., `2025-01-01T00:00:00Z`)
+
+### Combining with Scanning
+
+You can enable database logging during regular scans:
+
+```bash
+# Scan and log to database
+python3 knock_knock.py --targets targets.csv --db-path /var/lib/knockknock/knockknock.db
+
+# Scan, log to DB, and send email
+python3 knock_knock.py --targets targets.csv --db-path /var/lib/knockknock/knockknock.db --send-email
+```
 
 ## Running from Cron
 
@@ -352,12 +461,12 @@ When you run the scanner, it creates an output directory with:
 ```
 /tmp/knockknock-20250114-143022/
 ├── knock-knock-20250114-143022.html
-├── masscan-64.255.192.53.json
-├── masscan-45.205.47.82.json
-├── masscan-203.0.113.10.json
-├── nmap-64.255.192.53.xml
-├── nmap-45.205.47.82.xml
-└── nmap-203.0.113.10.xml
+├── masscan-192.0.2.10.json
+├── masscan-192.0.2.11.json
+├── masscan-198.51.100.20.json
+├── nmap-192.0.2.10.xml
+├── nmap-192.0.2.11.xml
+└── nmap-198.51.100.20.xml
 ```
 
 - **HTML report**: Human-readable security report

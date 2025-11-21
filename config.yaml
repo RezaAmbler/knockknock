@@ -141,6 +141,20 @@ email:
   subject_prefix: "Knock Knock Weekly Security Scan"
 
 # ============================================================================
+# Database / History Configuration
+# ============================================================================
+database:
+  # Enable SQLite-based logging of scan results
+  # When enabled, all scan runs and results are stored in an append-only database
+  # This enables historical reporting and trend analysis
+  enabled: false
+
+  # Path to SQLite database file
+  # The parent directory will be created if it doesn't exist
+  # Default: /var/lib/knockknock/knockknock.db
+  path: "/var/lib/knockknock/knockknock.db"
+
+# ============================================================================
 # Reporting Configuration
 # ============================================================================
 reporting:

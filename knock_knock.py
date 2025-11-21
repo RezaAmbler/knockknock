@@ -33,6 +33,14 @@ from config import Config
 from emailer import EmailSender
 from report import HTMLReportGenerator
 from scanner import check_tools, scan_hosts_parallel
+from storage import (
+    RunMetadata,
+    PortSummaryRow,
+    compute_hash,
+    record_run,
+    query_ports_summary,
+    get_db_stats
+)
 
 
 # ANSI color codes for terminal output
@@ -136,26 +144,79 @@ The tool will:
         """
     )
 
-    parser.add_argument(
+    # Scanning mode arguments
+    scan_group = parser.add_argument_group('scanning mode')
+    scan_group.add_argument(
         '--targets',
-        required=True,
-        help='Path to CSV file with device_name and wan_ip columns'
+        help='Path to CSV file with device_name and wan_ip columns (required for scan mode)'
     )
 
-    parser.add_argument(
+    scan_group.add_argument(
         '--output-dir',
         help='Directory to save reports (default: /tmp/knockknock-YYYYMMDD-HHMMSS/)'
     )
 
-    parser.add_argument(
+    scan_group.add_argument(
         '--html-report',
         help='Filename for HTML report (default: knock-knock-YYYYMMDD-HHMMSS.html)'
     )
 
-    parser.add_argument(
+    scan_group.add_argument(
         '--send-email',
         action='store_true',
         help='Send email with report (requires valid SMTP config)'
+    )
+
+    # Database arguments
+    db_group = parser.add_argument_group('database logging')
+    db_group.add_argument(
+        '--db-path',
+        type=Path,
+        help='Path to SQLite database (enables DB logging and overrides config)'
+    )
+
+    db_group.add_argument(
+        '--no-db',
+        action='store_true',
+        help='Explicitly disable database logging (overrides config)'
+    )
+
+    # Reporting mode arguments
+    report_group = parser.add_argument_group('reporting mode')
+    report_group.add_argument(
+        '--report',
+        choices=['ports'],
+        help='Generate report from database (currently supports: ports)'
+    )
+
+    report_group.add_argument(
+        '--from',
+        dest='from_date',
+        help='Start datetime for report range (ISO-8601 format: YYYY-MM-DDTHH:MM:SSZ, default: earliest)'
+    )
+
+    report_group.add_argument(
+        '--to',
+        dest='to_date',
+        help='End datetime for report range (ISO-8601 format: YYYY-MM-DDTHH:MM:SSZ, default: now)'
+    )
+
+    report_group.add_argument(
+        '--host',
+        help='Filter report by hostname or IP (optional)'
+    )
+
+    report_group.add_argument(
+        '--port',
+        type=int,
+        help='Filter report by port number (optional)'
+    )
+
+    report_group.add_argument(
+        '--output',
+        choices=['table', 'csv'],
+        default='table',
+        help='Output format for reports (default: table)'
     )
 
     return parser.parse_args()
@@ -273,6 +334,186 @@ def load_targets(csv_path: Path) -> Tuple[Dict[str, List[str]], List[str]]:
     return device_ip_mapping, all_unique_ips
 
 
+def parse_datetime(dt_str: Optional[str], default: str) -> str:
+    """
+    Parse and validate ISO-8601 datetime string.
+
+    Args:
+        dt_str: DateTime string in ISO-8601 format (YYYY-MM-DDTHH:MM:SSZ)
+        default: Default value if dt_str is None
+
+    Returns:
+        Validated ISO-8601 datetime string
+
+    Raises:
+        ValueError: If datetime string is invalid
+    """
+    if dt_str is None:
+        return default
+
+    try:
+        # Validate by parsing
+        datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+        return dt_str
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid datetime format: {dt_str}. "
+            f"Expected ISO-8601 format like: 2025-01-01T00:00:00Z"
+        ) from e
+
+
+def print_ports_table(rows: List[PortSummaryRow]) -> None:
+    """
+    Print port summary rows as a formatted table.
+
+    Args:
+        rows: List of PortSummaryRow objects
+    """
+    if not rows:
+        print("No ports found in the specified time range.")
+        return
+
+    # Define column widths
+    col_widths = {
+        'device': max(len(row.device_name) for row in rows) + 2,
+        'ip': max(len(row.ip) for row in rows) + 2,
+        'port': 6,
+        'proto': 7,
+        'first': 25,
+        'last': 25,
+        'runs': 6,
+        'product': 18,
+        'version': 16
+    }
+
+    # Ensure minimum widths for headers
+    col_widths['device'] = max(col_widths['device'], 16)
+    col_widths['ip'] = max(col_widths['ip'], 17)
+
+    # Print header
+    header = (
+        f"{'HOSTNAME':<{col_widths['device']}} "
+        f"{'IP':<{col_widths['ip']}} "
+        f"{'PORT':<{col_widths['port']}} "
+        f"{'PROTO':<{col_widths['proto']}} "
+        f"{'FIRST_SEEN':<{col_widths['first']}} "
+        f"{'LAST_SEEN':<{col_widths['last']}} "
+        f"{'RUNS':<{col_widths['runs']}} "
+        f"{'PRODUCT':<{col_widths['product']}} "
+        f"{'VERSION':<{col_widths['version']}}"
+    )
+    print(header)
+    print("-" * len(header))
+
+    # Print rows
+    for row in rows:
+        product = (row.last_product or '')[:col_widths['product']-1]
+        version = (row.last_version or '')[:col_widths['version']-1]
+
+        print(
+            f"{row.device_name:<{col_widths['device']}} "
+            f"{row.ip:<{col_widths['ip']}} "
+            f"{row.port:<{col_widths['port']}} "
+            f"{row.protocol:<{col_widths['proto']}} "
+            f"{row.first_seen_at:<{col_widths['first']}} "
+            f"{row.last_seen_at:<{col_widths['last']}} "
+            f"{row.runs_count:<{col_widths['runs']}} "
+            f"{product:<{col_widths['product']}} "
+            f"{version:<{col_widths['version']}}"
+        )
+
+    print()
+    print(f"Total: {len(rows)} unique port(s)")
+
+
+def print_ports_csv(rows: List[PortSummaryRow]) -> None:
+    """
+    Print port summary rows as CSV.
+
+    Args:
+        rows: List of PortSummaryRow objects
+    """
+    # Print header
+    print("device_name,ip,port,protocol,first_seen_at,last_seen_at,runs_count,last_product,last_version")
+
+    # Print rows
+    for row in rows:
+        product = row.last_product or ''
+        version = row.last_version or ''
+        print(
+            f"{row.device_name},{row.ip},{row.port},{row.protocol},"
+            f"{row.first_seen_at},{row.last_seen_at},{row.runs_count},"
+            f"{product},{version}"
+        )
+
+
+def run_report_mode(args: argparse.Namespace, config: Config) -> None:
+    """
+    Run in report mode - query database and generate report.
+
+    Args:
+        args: Parsed command-line arguments
+        config: Configuration object
+    """
+    logger = logging.getLogger(__name__)
+
+    # Determine database path
+    if args.db_path:
+        db_path = args.db_path
+    elif config.database_enabled:
+        db_path = Path(config.database_path)
+    else:
+        logger.error("Report mode requires a database. Use --db-path or enable database in config.yaml")
+        sys.exit(1)
+
+    if not db_path.exists():
+        logger.error(f"Database not found: {db_path}")
+        sys.exit(1)
+
+    logger.info(f"Reading from database: {db_path}")
+
+    # Show database stats
+    stats = get_db_stats(db_path)
+    logger.info(
+        f"Database contains {stats.get('total_runs', 0)} runs, "
+        f"{stats.get('total_hosts', 0)} host scans, "
+        f"{stats.get('total_ports', 0)} port records"
+    )
+    if stats.get('first_run'):
+        logger.info(f"Date range: {stats.get('first_run')} to {stats.get('last_run')}")
+
+    # Parse date range
+    try:
+        from_dt = parse_datetime(args.from_date, '0001-01-01T00:00:00Z')
+        to_dt = parse_datetime(args.to_date, datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'))
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    logger.info(f"Report time range: {from_dt} to {to_dt}")
+
+    # Run the appropriate report
+    if args.report == 'ports':
+        logger.info("Generating ports report...")
+
+        rows = query_ports_summary(
+            db_path=db_path,
+            from_dt=from_dt,
+            to_dt=to_dt,
+            host_filter=args.host,
+            port_filter=args.port
+        )
+
+        # Print results
+        if args.output == 'csv':
+            print_ports_csv(rows)
+        else:
+            print()
+            print_ports_table(rows)
+
+    logger.info("Report complete")
+
+
 def main() -> None:
     """Main entrypoint for knock_knock scanner."""
     setup_logging()
@@ -288,6 +529,16 @@ def main() -> None:
     # Load configuration
     logger.info("Loading configuration...")
     config = Config()
+
+    # Check if we're in report mode
+    if args.report:
+        run_report_mode(args, config)
+        return
+
+    # Scanning mode - validate required arguments
+    if not args.targets:
+        logger.error("--targets is required for scanning mode")
+        sys.exit(1)
 
     # Validate email configuration if --send-email is specified
     if args.send_email:
@@ -456,6 +707,60 @@ def main() -> None:
             logger.info("Email sent successfully")
         else:
             logger.error("Failed to send email (scan completed successfully)")
+
+    # Record to database if enabled
+    # Precedence: --no-db disables, --db-path enables, otherwise use config
+    should_log_db = False
+    db_log_path = None
+
+    if not args.no_db:
+        if args.db_path:
+            should_log_db = True
+            db_log_path = args.db_path
+        elif config.database_enabled:
+            should_log_db = True
+            db_log_path = Path(config.database_path)
+
+    if should_log_db and db_log_path:
+        logger.info(f"Recording scan results to database: {db_log_path}")
+
+        try:
+            # Read targets file content for hashing
+            targets_content = targets_path.read_text()
+            targets_hash = compute_hash(targets_content)
+
+            # Compute config hash from relevant settings
+            config_dict = {
+                'masscan_rate': config.masscan_rate,
+                'nmap_args': config.nmap_args,
+                'ssh_ports': config.ssh_ports,
+                'max_concurrent_hosts': config.max_concurrent_hosts,
+                'host_timeout_seconds': config.host_timeout_seconds
+            }
+            config_hash = compute_hash(str(sorted(config_dict.items())))
+
+            # Build run metadata
+            run_meta = RunMetadata(
+                started_at=start_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                finished_at=end_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                config_hash=config_hash,
+                targets_hash=targets_hash,
+                cli_args=' '.join(sys.argv[1:])
+            )
+
+            # Record to database
+            record_run(
+                db_path=db_log_path,
+                run_meta=run_meta,
+                results=scan_results,
+                device_mapping=device_ip_mapping
+            )
+
+            logger.info("Scan results recorded to database successfully")
+
+        except Exception as e:
+            logger.warning(f"Failed to record scan to database: {e}")
+            # Don't fail the scan due to DB errors
 
     logger.info("=" * 80)
     logger.info("Knock Knock scan complete")
