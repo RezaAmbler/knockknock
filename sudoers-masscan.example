@@ -1,0 +1,17 @@
+# Sudoers configuration for knock_knock masscan
+#
+# This file allows the knock_knock scanner to run masscan with sudo
+# without requiring a password prompt.
+#
+# Installation:
+#   sudo cp sudoers-masscan.example /etc/sudoers.d/masscan
+#   sudo chmod 440 /etc/sudoers.d/masscan
+#   sudo visudo -c  # Verify syntax
+#
+# Replace 'yourusername' with the actual username that runs knock_knock
+
+# Allow passwordless sudo for masscan
+yourusername ALL=(root) NOPASSWD: /usr/bin/masscan
+
+# If using a specific group instead:
+# %scanners ALL=(root) NOPASSWD: /usr/bin/masscan
