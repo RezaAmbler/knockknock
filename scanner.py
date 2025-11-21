@@ -419,33 +419,79 @@ def run_ssh_audit(
                     result.banner = data['banner'].get('raw', '')
                     result.ssh_version = data['banner'].get('protocol', '')
 
-                # Extract algorithm information
-                if 'kex' in data:
-                    kex_data = data['kex'][0] if isinstance(data['kex'], list) else data['kex']
+                # Extract algorithm names and collect warnings/failures
+                warnings_set = set()
+                failures_set = set()
 
-                    result.key_exchange = kex_data.get('kex_algorithms', [])
+                # Process Key Exchange algorithms
+                if 'kex' in data and isinstance(data['kex'], list):
+                    for algo_obj in data['kex']:
+                        algo_name = algo_obj.get('algorithm', '')
+                        if algo_name:
+                            result.key_exchange.append(algo_name)
 
-                    # Get encryption algorithms (ciphers)
-                    enc = kex_data.get('encryption_algorithms', [])
-                    result.ciphers = enc if isinstance(enc, list) else []
+                        # Extract warnings and failures from notes
+                        if 'notes' in algo_obj:
+                            notes = algo_obj['notes']
+                            if 'warn' in notes:
+                                for warn in notes['warn']:
+                                    warnings_set.add(f"KEX {algo_name}: {warn}")
+                            if 'fail' in notes:
+                                for fail in notes['fail']:
+                                    failures_set.add(f"KEX {algo_name}: {fail}")
 
-                    # Get MAC algorithms
-                    mac = kex_data.get('mac_algorithms', [])
-                    result.macs = mac if isinstance(mac, list) else []
+                # Process Encryption algorithms (ciphers)
+                if 'enc' in data and isinstance(data['enc'], list):
+                    for algo_obj in data['enc']:
+                        algo_name = algo_obj.get('algorithm', '')
+                        if algo_name:
+                            result.ciphers.append(algo_name)
 
-                # Extract recommendations (issues and warnings)
-                if 'recommendations' in data:
-                    recommendations = data['recommendations']
+                        # Extract warnings and failures from notes
+                        if 'notes' in algo_obj:
+                            notes = algo_obj['notes']
+                            if 'warn' in notes:
+                                for warn in notes['warn']:
+                                    warnings_set.add(f"Cipher {algo_name}: {warn}")
+                            if 'fail' in notes:
+                                for fail in notes['fail']:
+                                    failures_set.add(f"Cipher {algo_name}: {fail}")
 
-                    # Critical issues
-                    if 'critical' in recommendations:
-                        critical = recommendations['critical']
-                        result.critical_issues = _parse_recommendations(critical)
+                # Process Host Key algorithms
+                if 'key' in data and isinstance(data['key'], list):
+                    for algo_obj in data['key']:
+                        algo_name = algo_obj.get('algorithm', '')
 
-                    # Warnings
-                    if 'warning' in recommendations:
-                        warning = recommendations['warning']
-                        result.warnings = _parse_recommendations(warning)
+                        # Extract warnings and failures from notes
+                        if 'notes' in algo_obj:
+                            notes = algo_obj['notes']
+                            if 'warn' in notes:
+                                for warn in notes['warn']:
+                                    warnings_set.add(f"Host Key {algo_name}: {warn}")
+                            if 'fail' in notes:
+                                for fail in notes['fail']:
+                                    failures_set.add(f"Host Key {algo_name}: {fail}")
+
+                # Process MAC algorithms
+                if 'mac' in data and isinstance(data['mac'], list):
+                    for algo_obj in data['mac']:
+                        algo_name = algo_obj.get('algorithm', '')
+                        if algo_name:
+                            result.macs.append(algo_name)
+
+                        # Extract warnings and failures from notes
+                        if 'notes' in algo_obj:
+                            notes = algo_obj['notes']
+                            if 'warn' in notes:
+                                for warn in notes['warn']:
+                                    warnings_set.add(f"MAC {algo_name}: {warn}")
+                            if 'fail' in notes:
+                                for fail in notes['fail']:
+                                    failures_set.add(f"MAC {algo_name}: {fail}")
+
+                # Convert sets to sorted lists
+                result.warnings = sorted(list(warnings_set))
+                result.critical_issues = sorted(list(failures_set))
 
             except json.JSONDecodeError as e:
                 result.error = f"Failed to parse ssh-audit JSON output: {e}"
@@ -470,38 +516,6 @@ def run_ssh_audit(
         logger.debug(f"[{ip}:{port}] ssh-audit exception details: {type(e).__name__}: {e}")
 
     return result
-
-
-def _parse_recommendations(rec_data: Dict[str, Any]) -> List[str]:
-    """
-    Parse ssh-audit recommendation data into human-readable strings.
-
-    Args:
-        rec_data: Recommendation data dictionary
-
-    Returns:
-        List of recommendation strings
-    """
-    recommendations = []
-
-    for action in ['del', 'add', 'chg']:
-        if action not in rec_data:
-            continue
-
-        action_verb = {
-            'del': 'Remove',
-            'add': 'Add',
-            'chg': 'Change'
-        }.get(action, action)
-
-        for category, items in rec_data[action].items():
-            for item in items:
-                msg = f"{action_verb} {category}: {item.get('name', 'unknown')}"
-                if item.get('notes'):
-                    msg += f" - {item['notes']}"
-                recommendations.append(msg)
-
-    return recommendations
 
 
 def scan_host(
