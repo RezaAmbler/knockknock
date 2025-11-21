@@ -719,15 +719,20 @@ def scan_hosts_parallel(
             future_to_ip[future] = ip
 
         # Collect masscan results
+        completed_count = 0
+        total_count = len(ips)
         for future in as_completed(future_to_ip):
             ip = future_to_ip[future]
+            completed_count += 1
+            progress = f"[{completed_count}/{total_count}]"
+
             try:
                 success, open_ports, error = future.result(timeout=masscan_timeout + 10)
 
                 if not success:
                     results_dict[ip].status = 'error'
                     results_dict[ip].error_message = f"masscan failed: {error}"
-                    logger.error(f"[{ip}] masscan failed: {error}")
+                    logger.error(f"{progress} [{ip}] masscan failed: {error}")
                 else:
                     # Store discovered ports for Phase 2
                     results_dict[ip].open_ports = [
@@ -735,18 +740,18 @@ def scan_hosts_parallel(
                         for p in open_ports
                     ]
                     if open_ports:
-                        logger.info(f"[{ip}] masscan found {len(open_ports)} open ports")
+                        logger.info(f"{progress} [{ip}] masscan found {len(open_ports)} open ports")
                     else:
-                        logger.info(f"[{ip}] masscan found no open ports - skipping nmap")
+                        logger.info(f"{progress} [{ip}] masscan found no open ports - skipping nmap")
 
             except TimeoutError:
                 results_dict[ip].status = 'timeout'
                 results_dict[ip].error_message = f"masscan timed out"
-                logger.error(f"[{ip}] masscan timed out")
+                logger.error(f"{progress} [{ip}] masscan timed out")
             except Exception as e:
                 results_dict[ip].status = 'error'
                 results_dict[ip].error_message = f"masscan exception: {str(e)}"
-                logger.error(f"[{ip}] masscan exception: {e}")
+                logger.error(f"{progress} [{ip}] masscan exception: {e}")
 
     # =========================================================================
     # PHASE 2: NMAP - Detailed analysis of discovered ports
@@ -781,30 +786,35 @@ def scan_hosts_parallel(
                 future_to_ip[future] = ip
 
             # Collect nmap results
+            completed_count = 0
+            total_count = len(hosts_for_nmap)
             for future in as_completed(future_to_ip):
                 ip = future_to_ip[future]
+                completed_count += 1
+                progress = f"[{completed_count}/{total_count}]"
+
                 try:
                     success, error = future.result(timeout=nmap_timeout + 10)
 
                     if not success:
                         results_dict[ip].status = 'error'
                         results_dict[ip].error_message = f"nmap failed: {error}"
-                        logger.error(f"[{ip}] nmap failed: {error}")
+                        logger.error(f"{progress} [{ip}] nmap failed: {error}")
                     else:
                         # Parse nmap XML results
                         nmap_xml_path = output_dir / f'nmap-{ip}.xml'
                         results_dict[ip].nmap_xml_path = nmap_xml_path
                         results_dict[ip].open_ports = parse_nmap_xml(nmap_xml_path)
-                        logger.info(f"[{ip}] nmap analyzed {len(results_dict[ip].open_ports)} ports")
+                        logger.info(f"{progress} [{ip}] nmap analyzed {len(results_dict[ip].open_ports)} ports")
 
                 except TimeoutError:
                     results_dict[ip].status = 'timeout'
                     results_dict[ip].error_message = f"nmap timed out"
-                    logger.error(f"[{ip}] nmap timed out")
+                    logger.error(f"{progress} [{ip}] nmap timed out")
                 except Exception as e:
                     results_dict[ip].status = 'error'
                     results_dict[ip].error_message = f"nmap exception: {str(e)}"
-                    logger.error(f"[{ip}] nmap exception: {e}")
+                    logger.error(f"{progress} [{ip}] nmap exception: {e}")
     else:
         logger.info("=" * 80)
         logger.info("PHASE 2: Skipped - no hosts with open ports")
@@ -833,21 +843,26 @@ def scan_hosts_parallel(
                 future_to_target[future] = (ip, port)
 
             # Collect ssh-audit results
+            completed_count = 0
+            total_count = len(ssh_targets)
             for future in as_completed(future_to_target):
                 ip, port = future_to_target[future]
+                completed_count += 1
+                progress = f"[{completed_count}/{total_count}]"
+
                 try:
                     ssh_result = future.result(timeout=60)
                     results_dict[ip].ssh_results.append(ssh_result)
 
                     if ssh_result.error:
-                        logger.warning(f"[{ip}:{port}] ssh-audit: {ssh_result.error}")
+                        logger.warning(f"{progress} [{ip}:{port}] ssh-audit: {ssh_result.error}")
                     else:
-                        logger.info(f"[{ip}:{port}] ssh-audit complete")
+                        logger.info(f"{progress} [{ip}:{port}] ssh-audit complete")
 
                 except TimeoutError:
-                    logger.error(f"[{ip}:{port}] ssh-audit timed out")
+                    logger.error(f"{progress} [{ip}:{port}] ssh-audit timed out")
                 except Exception as e:
-                    logger.error(f"[{ip}:{port}] ssh-audit exception: {e}")
+                    logger.error(f"{progress} [{ip}:{port}] ssh-audit exception: {e}")
     else:
         logger.info("=" * 80)
         logger.info("PHASE 3: Skipped - no SSH services detected")
