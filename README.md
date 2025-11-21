@@ -209,6 +209,8 @@ email:
   smtp_host: "mail.example.com"
   smtp_port: 25
   smtp_use_tls: false            # Set true for port 587
+  smtp_username: null            # Optional, or use SMTP_USERNAME env var
+  smtp_password: null            # Optional, or use SMTP_PASSWORD env var
   from_address: "security-scanner@company.com"
   to_addresses:
     - "netops@company.com"
@@ -216,7 +218,27 @@ email:
   subject_prefix: "Knock Knock Weekly Security Scan"
 ```
 
-**Note**: This tool is designed for internal SMTP servers that don't require authentication. If your SMTP server requires username/password, you'll need to modify `emailer.py`.
+**SMTP Authentication**: For Gmail and other authenticated SMTP servers, you can provide credentials in two ways:
+
+1. **Environment variables (recommended for security)**:
+   ```bash
+   export SMTP_USERNAME="your-email@gmail.com"
+   export SMTP_PASSWORD="your-app-password"
+   python3 knock_knock.py --targets targets.csv --send-email
+   ```
+
+2. **Config file** (less secure, credentials stored in plaintext):
+   ```yaml
+   smtp_username: "your-email@gmail.com"
+   smtp_password: "your-app-password"
+   ```
+
+Environment variables take precedence over config file values.
+
+**Gmail Setup**: For Gmail, you need to:
+- Use `smtp.gmail.com` on port `587` with `smtp_use_tls: true`
+- Generate an App Password at https://myaccount.google.com/apppasswords
+- Use the App Password, not your regular Gmail password
 
 ### Reporting Settings
 
@@ -612,28 +634,14 @@ Edit `report.py`:
 - Adjust report sections in `_html_*()` methods
 - Change color schemes, fonts, or layout
 
-### Adding SMTP Authentication
-
-If your SMTP server requires authentication, modify `emailer.py`:
-
-```python
-# In EmailSender.send_report(), add:
-if self.smtp_use_tls:
-    with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-        server.starttls()
-        server.login(username, password)  # Add this line
-        server.send_message(msg)
-```
-
-Then add `smtp_username` and `smtp_password` fields to `config.yaml`.
-
 ## Security Considerations
 
 1. **Credentials**: This tool does not store or require credentials for target devices
 2. **Network Impact**: Scanning can be detected by IDS/IPS systems
 3. **Authorization**: Only scan devices you have permission to scan
 4. **Data Handling**: Reports may contain sensitive information; protect accordingly
-5. **SMTP**: Email reports are sent unencrypted unless using TLS
+5. **SMTP Credentials**: Use environment variables (`SMTP_USERNAME`, `SMTP_PASSWORD`) instead of storing credentials in `config.yaml`
+6. **SMTP Transport**: Email reports are sent unencrypted unless using TLS (`smtp_use_tls: true`)
 
 ## License
 

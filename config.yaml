@@ -65,7 +65,7 @@ nmap:
   args:
     - "-sV"
     - "-sC"
-    - "-T4"
+    - "-T2"
     - "-Pn"
 
 # ============================================================================
@@ -115,18 +115,27 @@ concurrency:
 email:
   # SMTP server hostname
   # Example: "smtp.company.com", "mail.example.com", "10.0.1.50"
-  smtp_host: "mta.lethalnetworks.com"
+  smtp_host: "smtp.gmail.com"
 
   # SMTP server port
   # Common values:
   #   25   : Standard SMTP (no encryption)
   #   587  : SMTP with STARTTLS
   #   465  : SMTP with implicit TLS/SSL
-  smtp_port: 25
+  smtp_port: 587
 
   # Whether to use TLS/STARTTLS
   # Set to true for port 587, false for port 25
-  smtp_use_tls: false
+  smtp_use_tls: true
+
+  # SMTP Authentication (optional)
+  # Required for Gmail and most modern SMTP servers
+  # For Gmail: Use your email and an App Password (not your regular password)
+  # Generate App Password: https://myaccount.google.com/apppasswords
+  smtp_username: null
+  smtp_password: null
+
+
 
   # Email 'From' address
   from_address: "from-address-example@github.com"
@@ -147,12 +156,12 @@ database:
   # Enable SQLite-based logging of scan results
   # When enabled, all scan runs and results are stored in an append-only database
   # This enables historical reporting and trend analysis
-  enabled: false
+  enabled: true
 
   # Path to SQLite database file
   # The parent directory will be created if it doesn't exist
   # Default: /var/lib/knockknock/knockknock.db
-  path: "/var/lib/knockknock/knockknock.db"
+  path: "db/knockknock.db"
 
 # ============================================================================
 # Reporting Configuration

@@ -27,7 +27,9 @@ class EmailSender:
         smtp_use_tls: bool,
         from_address: str,
         to_addresses: List[str],
-        subject_prefix: str
+        subject_prefix: str,
+        smtp_username: str = None,
+        smtp_password: str = None
     ):
         """
         Initialize email sender with SMTP configuration.
@@ -39,6 +41,8 @@ class EmailSender:
             from_address: Email 'From' address
             to_addresses: List of recipient email addresses
             subject_prefix: Subject line prefix
+            smtp_username: Optional SMTP username for authentication
+            smtp_password: Optional SMTP password for authentication
         """
         self.smtp_host = smtp_host
         self.smtp_port = smtp_port
@@ -46,6 +50,8 @@ class EmailSender:
         self.from_address = from_address
         self.to_addresses = to_addresses
         self.subject_prefix = subject_prefix
+        self.smtp_username = smtp_username
+        self.smtp_password = smtp_password
 
     def send_report(
         self,
@@ -102,9 +108,15 @@ class EmailSender:
             if self.smtp_use_tls:
                 with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
                     server.starttls()
+                    if self.smtp_username and self.smtp_password:
+                        logger.info(f"Authenticating as {self.smtp_username}")
+                        server.login(self.smtp_username, self.smtp_password)
                     server.send_message(msg)
             else:
                 with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                    if self.smtp_username and self.smtp_password:
+                        logger.info(f"Authenticating as {self.smtp_username}")
+                        server.login(self.smtp_username, self.smtp_password)
                     server.send_message(msg)
 
             logger.info(f"Email sent successfully to {', '.join(self.to_addresses)}")

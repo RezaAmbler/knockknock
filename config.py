@@ -104,6 +104,24 @@ class Config:
         return self._config.get('email', {}).get('smtp_use_tls', False)
 
     @property
+    def smtp_username(self) -> Optional[str]:
+        """
+        SMTP username for authentication.
+
+        Checks SMTP_USERNAME environment variable first, then falls back to config file.
+        """
+        return os.environ.get('SMTP_USERNAME') or self._config.get('email', {}).get('smtp_username')
+
+    @property
+    def smtp_password(self) -> Optional[str]:
+        """
+        SMTP password for authentication.
+
+        Checks SMTP_PASSWORD environment variable first, then falls back to config file.
+        """
+        return os.environ.get('SMTP_PASSWORD') or self._config.get('email', {}).get('smtp_password')
+
+    @property
     def from_address(self) -> Optional[str]:
         """Email 'From' address."""
         return self._config.get('email', {}).get('from_address')
