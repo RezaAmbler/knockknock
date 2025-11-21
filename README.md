@@ -36,7 +36,7 @@ cd knockknock
 ```
 
 The setup script will:
-- ✓ Check Python version (3.10+ required)
+- ✓ Check Python version (3.8+ required)
 - ✓ Install system tools (masscan, nmap, ssh-audit)
 - ✓ Set up Python virtual environment (optional)
 - ✓ Install Python dependencies (PyYAML)
@@ -64,7 +64,7 @@ python3 knock_knock.py --targets targets.csv
 ### System Requirements
 
 - **OS**: Linux (tested on Ubuntu/Debian) or macOS
-- **Python**: 3.10 or higher
+- **Python**: 3.8 or higher
 - **Tools**: `masscan`, `nmap`, and `ssh-audit` must be installed and available in PATH
 - **Privileges**: masscan requires `sudo`/root access for raw socket operations
 

@@ -80,11 +80,11 @@ check_python_version() {
     local major=$(echo $python_version | cut -d. -f1)
     local minor=$(echo $python_version | cut -d. -f2)
 
-    if [ "$major" -ge 3 ] && [ "$minor" -ge 10 ]; then
-        echo -e "${GREEN}✓ Python $python_version (>= 3.10 required)${NC}"
+    if [ "$major" -ge 3 ] && [ "$minor" -ge 8 ]; then
+        echo -e "${GREEN}✓ Python $python_version (>= 3.8 required)${NC}"
         return 0
     else
-        echo -e "${RED}✗ Python $python_version found, but 3.10+ required${NC}"
+        echo -e "${RED}✗ Python $python_version found, but 3.8+ required${NC}"
         return 1
     fi
 }
@@ -267,7 +267,7 @@ setup_config() {
 main() {
     # Check Python version
     if ! check_python_version; then
-        echo -e "\n${RED}Python 3.10+ is required. Please upgrade Python and try again.${NC}"
+        echo -e "\n${RED}Python 3.8+ is required. Please upgrade Python and try again.${NC}"
         exit 1
     fi
 
