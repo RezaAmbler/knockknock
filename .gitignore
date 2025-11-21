@@ -47,3 +47,6 @@ Thumbs.db
 /output/
 targets.csv
 targets-full.csv
+
+# Database files
+db/
