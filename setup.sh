@@ -348,13 +348,26 @@ main() {
     echo ""
 
     if [ "$USE_VENV" = "yes" ] && [ -z "$VIRTUAL_ENV" ]; then
-        echo -e "${YELLOW}Remember to activate the virtual environment:${NC}"
+        echo -e "${YELLOW}⚠️  Important: Activate the virtual environment${NC}"
+        echo ""
+        echo "Run this command to activate the venv:"
         echo -e "${GREEN}  source venv/bin/activate${NC}"
         echo ""
+        echo "Then you can run the scanner:"
+        echo -e "${GREEN}  python3 knock_knock.py --targets targets.csv${NC}"
+        echo ""
+        echo -e "${BLUE}Tip: Add this to your shell to make it easy:${NC}"
+        echo -e "  alias knockknock-activate='cd $(pwd) && source venv/bin/activate'"
+    elif [ "$USE_VENV" = "yes" ] && [ -n "$VIRTUAL_ENV" ]; then
+        echo -e "${GREEN}✓ Virtual environment is already activated!${NC}"
+        echo ""
+        echo "You can now run the scanner:"
+        echo -e "${GREEN}  python3 knock_knock.py --targets targets.csv${NC}"
+    else
+        echo "You can now run the scanner:"
+        echo -e "${GREEN}  python3 knock_knock.py --targets targets.csv${NC}"
     fi
 
-    echo "You can now run the scanner:"
-    echo -e "${GREEN}  python3 knock_knock.py --targets targets.csv${NC}"
     echo ""
     echo "For help:"
     echo -e "${GREEN}  python3 knock_knock.py --help${NC}"

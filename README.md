@@ -47,7 +47,8 @@ After setup completes:
 
 ```bash
 # If you used a virtual environment, activate it
-source venv/bin/activate
+source activate
+# Or: source venv/bin/activate
 
 # Copy the example targets file
 cp targets.csv.example targets.csv

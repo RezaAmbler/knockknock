@@ -1,0 +1,30 @@
+#!/bin/bash
+#
+# Knock Knock - Quick activation helper
+#
+# Usage:
+#   source activate
+#
+# This script activates the virtual environment if it exists.
+# Must be sourced, not executed.
+#
+
+if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
+    echo "Error: This script must be sourced, not executed directly."
+    echo "Usage: source activate"
+    exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+    source "$SCRIPT_DIR/venv/bin/activate"
+    echo "✓ Virtual environment activated"
+    echo ""
+    echo "You can now run:"
+    echo "  python3 knock_knock.py --targets targets.csv"
+else
+    echo "⚠️  Virtual environment not found at $SCRIPT_DIR/venv"
+    echo ""
+    echo "Run ./setup.sh --venv to create it"
+fi
