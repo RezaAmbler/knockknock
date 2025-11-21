@@ -54,6 +54,11 @@ class Config:
         """Masscan packet rate limit in packets per second."""
         return self._config.get('masscan', {}).get('rate', 1000)
 
+    @property
+    def masscan_interface(self) -> Optional[str]:
+        """Network interface for masscan to use (optional)."""
+        return self._config.get('masscan', {}).get('interface')
+
     # Nmap settings
     @property
     def nmap_binary(self) -> str:

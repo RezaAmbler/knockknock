@@ -853,7 +853,8 @@ def main() -> None:
         ssh_ports=config.ssh_ports,
         output_dir=output_dir,
         max_workers=config.max_concurrent_hosts,
-        timeout_seconds=config.host_timeout_seconds
+        timeout_seconds=config.host_timeout_seconds,
+        masscan_interface=config.masscan_interface
     )
 
     end_time = datetime.now()

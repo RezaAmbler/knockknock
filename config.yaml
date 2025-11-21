@@ -37,6 +37,13 @@ masscan:
   # Default: 1000 pps (safe with 10 concurrent hosts = 10k total PPS)
   rate: 1000
 
+  # Network interface to use (optional)
+  # If not specified, masscan will auto-detect the default interface
+  # Set this if you encounter "could not determine default interface" errors
+  # Common values: en0, en1, eth0, eth1, wlan0
+  # To find your interface: ifconfig (macOS/Linux) or ipconfig (Windows)
+  interface: null
+
 # ============================================================================
 # Nmap Configuration (Stage 2: Detailed Port Analysis)
 # ============================================================================

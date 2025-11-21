@@ -86,7 +86,8 @@ def run_masscan(
     masscan_binary: str,
     rate: int,
     output_path: Path,
-    timeout: int = 120
+    timeout: int = 120,
+    interface: Optional[str] = None
 ) -> Tuple[bool, List[int], Optional[str]]:
     """
     Run masscan to quickly discover open ports across all 65535 ports.
@@ -97,6 +98,7 @@ def run_masscan(
         rate: Packet rate limit (packets per second)
         output_path: Path to save JSON output
         timeout: Timeout in seconds for masscan scan (default: 120)
+        interface: Optional network interface to use (e.g., 'en0', 'eth0')
 
     Returns:
         Tuple of (success: bool, open_ports: List[int], error_message: Optional[str])
@@ -112,6 +114,10 @@ def run_masscan(
             '--output-format', 'json',
             '--output-filename', str(output_path)
         ]
+
+        # Add interface if specified
+        if interface:
+            cmd.extend(['--interface', interface])
 
         # Debug: Log command before execution
         logger.debug(f"[{ip}] Executing masscan: {' '.join(cmd)}")
@@ -507,7 +513,8 @@ def scan_host(
     ssh_audit_binary: str,
     ssh_ports: List[int],
     output_dir: Path,
-    timeout_seconds: int = 600
+    timeout_seconds: int = 600,
+    masscan_interface: Optional[str] = None
 ) -> HostScanResult:
     """
     Scan a single host with masscan, nmap, and ssh-audit.
@@ -554,7 +561,7 @@ def scan_host(
     logger.info(f"[{ip}] Stage 1: Running masscan for port discovery")
     masscan_json_path = output_dir / f'masscan-{ip}.json'
     masscan_success, open_ports, masscan_error = run_masscan(
-        ip, masscan_binary, masscan_rate, masscan_json_path, timeout=masscan_timeout
+        ip, masscan_binary, masscan_rate, masscan_json_path, timeout=masscan_timeout, interface=masscan_interface
     )
 
     if not masscan_success:
@@ -627,7 +634,8 @@ def scan_hosts_parallel(
     ssh_ports: List[int],
     output_dir: Path,
     max_workers: int,
-    timeout_seconds: int
+    timeout_seconds: int,
+    masscan_interface: Optional[str] = None
 ) -> List[HostScanResult]:
     """
     Scan multiple hosts in parallel using batched phase approach.
@@ -653,6 +661,7 @@ def scan_hosts_parallel(
         output_dir: Directory to save scan outputs
         max_workers: Maximum number of concurrent workers
         timeout_seconds: Per-host timeout in seconds
+        masscan_interface: Optional network interface for masscan (e.g., 'en0', 'eth0')
 
     Returns:
         List of HostScanResult objects
@@ -684,7 +693,8 @@ def scan_hosts_parallel(
                 masscan_binary,
                 masscan_rate,
                 masscan_json_path,
-                masscan_timeout
+                masscan_timeout,
+                masscan_interface
             )
             future_to_ip[future] = ip
 
