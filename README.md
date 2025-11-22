@@ -1,13 +1,14 @@
 # Knock Knock Security Scanner
 
-A production-quality command-line security scanning tool that uses a two-stage scanning approach (`masscan` → `nmap`) combined with `ssh-audit` to efficiently scan network devices, generate comprehensive HTML reports, and send them via email.
+A production-quality command-line security scanning tool that uses a multi-stage scanning approach (`masscan` → `nmap` → `ssh-audit` → `nuclei`) to efficiently scan network devices, generate comprehensive HTML reports, and send them via email.
 
 ## Features
 
-- **Three-Stage Scanning Pipeline**: Ultra-fast port discovery with masscan, followed by detailed nmap analysis and SSH security auditing
+- **Four-Stage Scanning Pipeline**: Ultra-fast port discovery with masscan, followed by detailed nmap analysis, SSH security auditing, and optional vulnerability scanning
   - Stage 1: masscan scans all 65,535 ports in ~75 seconds (at 1000 pps)
   - Stage 2: nmap performs deep analysis with SYN scan on only the discovered open ports
   - Stage 3: ssh-audit analyzes SSH security on detected SSH services
+  - Stage 4: nuclei performs vulnerability scanning on discovered services (optional)
 - **Parallel Execution**: Scans multiple hosts concurrently with progress tracking
 - **Network Safety**: Configurable packet rate limits with PPS calculations to prevent network congestion
 - **Comprehensive Analysis**: Version detection, vulnerability scanning, and SSH security auditing
@@ -61,7 +62,7 @@ source activate
 cp targets.csv.example targets.csv
 
 # Edit targets.csv with your devices
-# Edit config.yaml with your settings
+# Edit conf/config.yaml with your settings
 
 # Run your first scan
 python3 knock_knock.py --targets targets.csv
@@ -73,7 +74,8 @@ python3 knock_knock.py --targets targets.csv
 
 - **OS**: Linux (tested on Ubuntu/Debian) or macOS
 - **Python**: 3.8 or higher
-- **Tools**: `masscan`, `nmap`, and `ssh-audit` must be installed and available in PATH
+- **Required Tools**: `masscan`, `nmap`, and `ssh-audit` must be installed and available in PATH
+- **Optional Tools**: `nuclei` for vulnerability scanning (highly recommended)
 - **Privileges**: masscan requires `sudo`/root access for raw socket operations
 
 ### Manual Installation (if not using setup.sh)
@@ -89,13 +91,28 @@ sudo apt-get install -y masscan nmap ssh-audit
 brew install masscan nmap
 pip3 install ssh-audit
 
+# Install Nuclei (optional but recommended)
+# Option 1: Using Go
+go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+
+# Option 2: Using pre-built binary
+# Download from https://github.com/projectdiscovery/nuclei/releases
+wget https://github.com/projectdiscovery/nuclei/releases/latest/download/nuclei_3.x.x_linux_amd64.zip
+unzip nuclei_3.x.x_linux_amd64.zip
+sudo mv nuclei /usr/local/bin/
+sudo chmod +x /usr/local/bin/nuclei
+
 # Verify installation
 which masscan
 which nmap
 which ssh-audit
+which nuclei  # Optional
 
 # Test masscan works with sudo
 sudo masscan --version
+
+# Update Nuclei templates (if installed)
+nuclei -update-templates
 ```
 
 **Important**: masscan requires sudo privileges because it uses raw sockets. The knock_knock script automatically prepends `sudo` when calling masscan.
@@ -116,11 +133,11 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Edit `config.yaml` to customize the scanner behavior:
+Edit `conf/config.yaml` to customize the scanner behavior:
 
-### Two-Stage Scanning Workflow
+### Multi-Stage Scanning Workflow
 
-This tool uses an efficient two-stage scanning approach:
+This tool uses an efficient multi-stage scanning approach:
 
 **Stage 1 - Fast Port Discovery (masscan)**:
 - Scans ALL 65,535 ports on each host in ~75 seconds (at 1000 pps)
@@ -129,8 +146,19 @@ This tool uses an efficient two-stage scanning approach:
 
 **Stage 2 - Detailed Analysis (nmap)**:
 - Scans ONLY the ports discovered by masscan
-- Performs version detection, vulnerability scanning, and script execution
+- Performs version detection, service detection, and script execution
 - Much faster than traditional `-p-` scanning
+
+**Stage 3 - SSH Security Audit (ssh-audit)**:
+- Analyzes SSH services on configured ports (default: 22, 830)
+- Detects weak ciphers, key exchange algorithms, and MACs
+- Identifies critical security issues and warnings
+
+**Stage 4 - Vulnerability Scanning (nuclei - optional)**:
+- Performs automated vulnerability scanning using community templates
+- Can scan IPs directly or construct URLs from HTTP/HTTPS ports
+- Filters by severity level (critical, high, medium, low, info)
+- Results stored in database and displayed in HTML reports
 
 ### Masscan Settings
 
@@ -189,6 +217,67 @@ ssh_audit:
 
 Add additional ports if your environment uses non-standard SSH ports.
 
+### Nuclei Settings (Optional Vulnerability Scanner)
+
+Nuclei is an optional but highly recommended vulnerability scanner that runs after port discovery. When enabled, it performs automated vulnerability scanning using thousands of community-maintained templates.
+
+```yaml
+nuclei:
+  # Enable/disable Nuclei vulnerability scanning
+  enabled: false  # Set to true to enable
+
+  # Path to nuclei binary (use 'nuclei' if in PATH)
+  binary: "nuclei"
+
+  # Severity levels to include (comma-separated)
+  # Options: critical, high, medium, low, info
+  # Leave empty to include all severities
+  severity: "critical,high,medium"
+
+  # Timeout for Nuclei scan per host (in seconds)
+  # Nuclei can take significant time if many templates are enabled
+  # Recommended: 300-600 seconds (5-10 minutes)
+  timeout: 300
+
+  # Path to custom templates directory (optional)
+  # Leave empty to use Nuclei's default templates
+  templates: ""
+
+  # Scan mode: "ips" or "urls"
+  # - "ips": Scan IP addresses directly (default)
+  # - "urls": Build URLs from http/https ports (e.g., https://192.0.2.1:443)
+  scan_mode: "ips"
+```
+
+**Scan Modes Explained**:
+
+1. **`ips` mode** (default): Scans the IP address directly
+   - Example: `nuclei -target 192.0.2.1`
+   - Good for: Network-level vulnerability scanning
+   - Faster and covers all services
+
+2. **`urls` mode**: Constructs URLs from discovered HTTP/HTTPS ports
+   - Example: `nuclei -target https://192.0.2.1:443`
+   - Good for: Web application vulnerability scanning
+   - More targeted for web services
+
+**Template Management**:
+
+```bash
+# Update Nuclei templates (do this regularly)
+nuclei -update-templates
+
+# Use custom templates
+nuclei:
+  templates: "/path/to/custom/nuclei-templates"
+```
+
+**Performance Considerations**:
+- Nuclei scanning can take 5-10 minutes per host with default templates
+- Adjust `timeout` based on your network and number of templates
+- Use `severity` filter to reduce scan time (e.g., only scan for critical/high)
+- Nuclei runs in parallel across multiple hosts (respects `max_concurrent_hosts`)
+
 ### Concurrency and Timeouts
 
 ```yaml
@@ -197,17 +286,20 @@ concurrency:
   host_timeout_seconds: 1200     # 20 minutes per host
 ```
 
-**Important**: The `host_timeout_seconds` is the total time for all three scanning stages:
+**Important**: The `host_timeout_seconds` is the total time for all scanning stages (masscan, nmap, ssh-audit):
 - **Stage 1 (masscan)**: Gets 20% of timeout for fast port discovery
 - **Stage 2 (nmap)**: Gets 70% of timeout for detailed port analysis
 - **Stage 3 (ssh-audit)**: Gets 10% of timeout for SSH security checks
+- **Stage 4 (nuclei)**: Has its own dedicated timeout setting (not part of host_timeout_seconds)
 
-**Recommended timeouts with two-stage scanning**:
+**Recommended timeouts**:
 - **Normal usage**: 600-900 seconds (10-15 minutes)
 - **Conservative**: 1200 seconds (20 minutes)
 - **Many open ports**: 1800 seconds (30 minutes)
 
-The two-stage approach is **much faster** than the old `-p-` method because nmap only scans discovered ports!
+**Note**: Nuclei has its own separate timeout (`nuclei.timeout`) and runs independently after the three core scanning stages.
+
+The multi-stage approach is **much faster** than the old `-p-` method because nmap only scans discovered ports!
 
 ### Email/SMTP Settings
 
@@ -356,7 +448,7 @@ Knock Knock can optionally log all scan results to a SQLite database for histori
 
 ### Configuring Database Logging
 
-Edit `config.yaml`:
+Edit `conf/config.yaml`:
 
 ```yaml
 database:
@@ -377,7 +469,7 @@ python3 knock_knock.py --targets targets.csv --no-db
 **Precedence**:
 1. `--no-db` disables database logging
 2. `--db-path PATH` enables logging to specified path
-3. `database.enabled: true` in config.yaml uses `database.path`
+3. `database.enabled: true` in conf/config.yaml uses `database.path`
 
 ### Database Behavior
 
@@ -635,7 +727,7 @@ sudo apt-get install -y masscan nmap ssh-audit
 Error: smtp_host is required in email configuration
 ```
 
-**Solution**: Edit `config.yaml` and ensure all email settings are configured
+**Solution**: Edit `conf/config.yaml` and ensure all email settings are configured
 
 ### CSV File Not Found
 
