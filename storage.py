@@ -41,7 +41,19 @@ class PortSummaryRow:
     runs_count: int
     last_product: Optional[str] = None
     last_version: Optional[str] = None
-    ssh_issues: Optional[int] = None  # Count of SSH warnings + failures
+
+
+@dataclass
+class SSHAuditSummaryRow:
+    """Summary row for SSH audit reporting."""
+    device_name: str
+    ip: str
+    port: int
+    scan_date: str  # ISO-8601 UTC
+    banner: Optional[str] = None
+    issues_count: Optional[int] = None
+    warnings: Optional[str] = None  # Comma-separated warnings
+    failures: Optional[str] = None  # Comma-separated critical failures
 
 
 # SQL schema
@@ -335,19 +347,7 @@ def query_ports_summary(
                AND r2.finished_at >= ?
                AND r2.finished_at <= ?
              ORDER BY r2.finished_at DESC
-             LIMIT 1) as last_version,
-            -- Get SSH issues count from most recent run
-            (SELECT s.issues_count FROM ssh_audit s
-             JOIN ports p2 ON s.port_id = p2.id
-             JOIN hosts h2 ON p2.host_id = h2.id
-             JOIN runs r2 ON h2.run_id = r2.id
-             WHERE p2.port = p.port
-               AND p2.protocol = p.protocol
-               AND h2.ip = h.ip
-               AND r2.finished_at >= ?
-               AND r2.finished_at <= ?
-             ORDER BY r2.finished_at DESC
-             LIMIT 1) as ssh_issues
+             LIMIT 1) as last_version
         FROM ports p
         JOIN hosts h ON p.host_id = h.id
         JOIN runs r ON h.run_id = r.id
@@ -355,7 +355,7 @@ def query_ports_summary(
           AND r.finished_at <= ?
         """
 
-        params = [from_dt, to_dt, from_dt, to_dt, from_dt, to_dt, from_dt, to_dt]
+        params = [from_dt, to_dt, from_dt, to_dt, from_dt, to_dt]
 
         if host_filter:
             query += " AND (h.device_name LIKE ? OR h.ip LIKE ?)"
@@ -384,8 +384,7 @@ def query_ports_summary(
                 last_seen_at=row['last_seen_at'],
                 runs_count=row['runs_count'],
                 last_product=row['last_product'],
-                last_version=row['last_version'],
-                ssh_issues=row['ssh_issues']
+                last_version=row['last_version']
             ))
 
         conn.close()
@@ -393,6 +392,119 @@ def query_ports_summary(
 
     except Exception as e:
         logger.error(f"Failed to query ports summary: {e}")
+        raise
+
+
+def query_ssh_audit_summary(
+    db_path: Path,
+    from_dt: str,
+    to_dt: str,
+    host_filter: Optional[str] = None,
+    port_filter: Optional[int] = None
+) -> List[SSHAuditSummaryRow]:
+    """
+    Query SSH audit summary for a time range.
+
+    Args:
+        db_path: Path to SQLite database
+        from_dt: Start datetime in ISO-8601 format (UTC)
+        to_dt: End datetime in ISO-8601 format (UTC)
+        host_filter: Optional hostname/IP filter
+        port_filter: Optional port number filter
+
+    Returns:
+        List of SSHAuditSummaryRow objects
+    """
+    try:
+        conn = init_db(db_path)
+
+        # Build query - get most recent SSH audit for each host:port
+        query = """
+        SELECT
+            h.device_name,
+            h.ip,
+            p.port,
+            r.finished_at as scan_date,
+            s.banner,
+            s.issues_count,
+            s.raw_json
+        FROM ssh_audit s
+        JOIN ports p ON s.port_id = p.id
+        JOIN hosts h ON p.host_id = h.id
+        JOIN runs r ON h.run_id = r.id
+        WHERE r.finished_at >= ?
+          AND r.finished_at <= ?
+          AND s.raw_json IS NOT NULL
+        """
+
+        params = [from_dt, to_dt]
+
+        if host_filter:
+            query += " AND (h.device_name LIKE ? OR h.ip LIKE ?)"
+            params.extend([f"%{host_filter}%", f"%{host_filter}%"])
+
+        if port_filter is not None:
+            query += " AND p.port = ?"
+            params.append(port_filter)
+
+        query += """
+        ORDER BY h.device_name, h.ip, p.port, r.finished_at DESC
+        """
+
+        cursor = conn.execute(query, params)
+        rows = cursor.fetchall()
+
+        # Parse raw JSON to extract warnings and failures
+        results = []
+        seen = set()  # Track (ip, port) to get only most recent
+
+        for row in rows:
+            key = (row['ip'], row['port'])
+            if key in seen:
+                continue  # Skip older scans
+            seen.add(key)
+
+            warnings = []
+            failures = []
+
+            # Parse raw_json if available
+            if row['raw_json']:
+                import json
+                try:
+                    data = json.loads(row['raw_json'])
+
+                    # Extract warnings and failures from algorithm notes
+                    for section in ['kex', 'enc', 'key', 'mac']:
+                        if section in data and isinstance(data[section], list):
+                            for algo_obj in data[section]:
+                                algo_name = algo_obj.get('algorithm', '')
+                                if 'notes' in algo_obj:
+                                    notes = algo_obj['notes']
+                                    if 'warn' in notes:
+                                        for warn in notes['warn']:
+                                            warnings.append(f"{section.upper()} {algo_name}: {warn}")
+                                    if 'fail' in notes:
+                                        for fail in notes['fail']:
+                                            failures.append(f"{section.upper()} {algo_name}: {fail}")
+                except json.JSONDecodeError:
+                    pass
+
+            results.append(SSHAuditSummaryRow(
+                device_name=row['device_name'] or 'unknown',
+                ip=row['ip'],
+                port=row['port'],
+                scan_date=row['scan_date'],
+                banner=row['banner'],
+                issues_count=row['issues_count'],
+                warnings='; '.join(warnings[:3]) if warnings else None,  # Limit to first 3
+                failures='; '.join(failures[:3]) if failures else None   # Limit to first 3
+            ))
+
+        conn.close()
+        return results
+
+    except Exception as e:
+        logger.error(f"Failed to query SSH audit summary: {e}")
         raise
 
 

@@ -36,9 +36,11 @@ from scanner import check_tools, scan_hosts_parallel
 from storage import (
     RunMetadata,
     PortSummaryRow,
+    SSHAuditSummaryRow,
     compute_hash,
     record_run,
     query_ports_summary,
+    query_ssh_audit_summary,
     get_db_stats
 )
 
@@ -247,8 +249,8 @@ The tool will:
     report_group = parser.add_argument_group('reporting mode')
     report_group.add_argument(
         '--report',
-        choices=['ports'],
-        help='Generate report from database (currently supports: ports)'
+        choices=['ports', 'ssh-audit', 'all'],
+        help='Generate report from database (ports: port history, ssh-audit: SSH security findings, all: comprehensive report)'
     )
 
     report_group.add_argument(
@@ -445,8 +447,7 @@ def print_ports_table(rows: List[PortSummaryRow]) -> None:
         'last': 25,
         'runs': 6,
         'product': 18,
-        'version': 16,
-        'ssh': 10
+        'version': 16
     }
 
     # Ensure minimum widths for headers
@@ -463,8 +464,7 @@ def print_ports_table(rows: List[PortSummaryRow]) -> None:
         f"{'LAST_SEEN':<{col_widths['last']}} "
         f"{'RUNS':<{col_widths['runs']}} "
         f"{'PRODUCT':<{col_widths['product']}} "
-        f"{'VERSION':<{col_widths['version']}} "
-        f"{'SSH_ISSUES':<{col_widths['ssh']}}"
+        f"{'VERSION':<{col_widths['version']}}"
     )
     print(header)
     print("-" * len(header))
@@ -473,7 +473,6 @@ def print_ports_table(rows: List[PortSummaryRow]) -> None:
     for row in rows:
         product = (row.last_product or '')[:col_widths['product']-1]
         version = (row.last_version or '')[:col_widths['version']-1]
-        ssh_issues = str(row.ssh_issues) if row.ssh_issues is not None else ''
 
         print(
             f"{row.device_name:<{col_widths['device']}} "
@@ -484,8 +483,7 @@ def print_ports_table(rows: List[PortSummaryRow]) -> None:
             f"{row.last_seen_at:<{col_widths['last']}} "
             f"{row.runs_count:<{col_widths['runs']}} "
             f"{product:<{col_widths['product']}} "
-            f"{version:<{col_widths['version']}} "
-            f"{ssh_issues:<{col_widths['ssh']}}"
+            f"{version:<{col_widths['version']}}"
         )
 
     print()
@@ -500,17 +498,103 @@ def print_ports_csv(rows: List[PortSummaryRow]) -> None:
         rows: List of PortSummaryRow objects
     """
     # Print header
-    print("device_name,ip,port,protocol,first_seen_at,last_seen_at,runs_count,last_product,last_version,ssh_issues")
+    print("device_name,ip,port,protocol,first_seen_at,last_seen_at,runs_count,last_product,last_version")
 
     # Print rows
     for row in rows:
         product = row.last_product or ''
         version = row.last_version or ''
-        ssh_issues = row.ssh_issues if row.ssh_issues is not None else ''
         print(
             f"{row.device_name},{row.ip},{row.port},{row.protocol},"
             f"{row.first_seen_at},{row.last_seen_at},{row.runs_count},"
-            f"{product},{version},{ssh_issues}"
+            f"{product},{version}"
+        )
+
+
+def print_ssh_audit_table(rows: List[SSHAuditSummaryRow]) -> None:
+    """
+    Print SSH audit summary rows as a formatted table.
+
+    Args:
+        rows: List of SSHAuditSummaryRow objects
+    """
+    if not rows:
+        print("No SSH audit data found in the specified time range.")
+        return
+
+    # Define column widths
+    col_widths = {
+        'device': max(len(row.device_name) for row in rows) + 2,
+        'ip': max(len(row.ip) for row in rows) + 2,
+        'port': 6,
+        'scan_date': 25,
+        'banner': 30,
+        'issues': 8
+    }
+
+    # Ensure minimum widths
+    col_widths['device'] = max(col_widths['device'], 16)
+    col_widths['ip'] = max(col_widths['ip'], 17)
+
+    # Print header
+    header = (
+        f"{'HOSTNAME':<{col_widths['device']}} "
+        f"{'IP':<{col_widths['ip']}} "
+        f"{'PORT':<{col_widths['port']}} "
+        f"{'SCAN_DATE':<{col_widths['scan_date']}} "
+        f"{'BANNER':<{col_widths['banner']}} "
+        f"{'ISSUES':<{col_widths['issues']}}"
+    )
+    print(header)
+    print("-" * len(header))
+
+    # Print rows
+    for row in rows:
+        banner = (row.banner or '')[:col_widths['banner']-1]
+        issues = str(row.issues_count) if row.issues_count is not None else '0'
+
+        print(
+            f"{row.device_name:<{col_widths['device']}} "
+            f"{row.ip:<{col_widths['ip']}} "
+            f"{row.port:<{col_widths['port']}} "
+            f"{row.scan_date:<{col_widths['scan_date']}} "
+            f"{banner:<{col_widths['banner']}} "
+            f"{issues:<{col_widths['issues']}}"
+        )
+
+        # Print warnings if any
+        if row.warnings:
+            print(f"  ⚠️  WARNINGS: {row.warnings}")
+
+        # Print failures if any
+        if row.failures:
+            print(f"  🔴 FAILURES: {row.failures}")
+
+    print()
+    print(f"Total: {len(rows)} SSH endpoint(s)")
+
+
+def print_ssh_audit_csv(rows: List[SSHAuditSummaryRow]) -> None:
+    """
+    Print SSH audit summary rows as CSV.
+
+    Args:
+        rows: List of SSHAuditSummaryRow objects
+    """
+    # Print header
+    print("device_name,ip,port,scan_date,banner,issues_count,warnings,failures")
+
+    # Print rows
+    for row in rows:
+        banner = row.banner or ''
+        issues = row.issues_count if row.issues_count is not None else 0
+        warnings = (row.warnings or '').replace(',', ';')  # Escape commas
+        failures = (row.failures or '').replace(',', ';')  # Escape commas
+
+        print(
+            f"{row.device_name},{row.ip},{row.port},"
+            f"{row.scan_date},{banner},{issues},"
+            f'"{warnings}","{failures}"'
         )
 
 
@@ -577,6 +661,70 @@ def run_report_mode(args: argparse.Namespace, config: Config) -> None:
         else:
             print()
             print_ports_table(rows)
+
+    elif args.report == 'ssh-audit':
+        logger.info("Generating SSH audit report...")
+
+        rows = query_ssh_audit_summary(
+            db_path=db_path,
+            from_dt=from_dt,
+            to_dt=to_dt,
+            host_filter=args.host,
+            port_filter=args.port
+        )
+
+        # Print results
+        if args.output == 'csv':
+            print_ssh_audit_csv(rows)
+        else:
+            print()
+            print_ssh_audit_table(rows)
+
+    elif args.report == 'all':
+        logger.info("Generating comprehensive report...")
+
+        # Ports section
+        print()
+        print("=" * 80)
+        print("PORT HISTORY")
+        print("=" * 80)
+        print()
+
+        port_rows = query_ports_summary(
+            db_path=db_path,
+            from_dt=from_dt,
+            to_dt=to_dt,
+            host_filter=args.host,
+            port_filter=args.port
+        )
+
+        if args.output == 'csv':
+            print("# PORTS")
+            print_ports_csv(port_rows)
+        else:
+            print_ports_table(port_rows)
+
+        # SSH Audit section
+        print()
+        print("=" * 80)
+        print("SSH SECURITY AUDIT")
+        print("=" * 80)
+        print()
+
+        ssh_rows = query_ssh_audit_summary(
+            db_path=db_path,
+            from_dt=from_dt,
+            to_dt=to_dt,
+            host_filter=args.host,
+            port_filter=args.port
+        )
+
+        if args.output == 'csv':
+            print()
+            print("# SSH AUDIT")
+            print_ssh_audit_csv(ssh_rows)
+        else:
+            print_ssh_audit_table(ssh_rows)
 
     logger.info("Report complete")
 
