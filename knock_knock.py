@@ -29,11 +29,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from config import Config
-from emailer import EmailSender
-from report import HTMLReportGenerator
-from scanner import check_tools, scan_hosts_parallel
-from storage import (
+from includes.config import Config
+from includes.emailer import EmailSender
+from includes.report import HTMLReportGenerator
+from includes.scanner import check_tools, scan_hosts_parallel
+from includes.storage import (
     RunMetadata,
     PortSummaryRow,
     SSHAuditSummaryRow,
@@ -985,13 +985,18 @@ def main() -> None:
 
     # Run scans
     logger.info("=" * 80)
-    logger.info("Starting two-stage security scans (masscan → nmap → ssh-audit)")
+    scan_pipeline = "masscan → nmap → ssh-audit"
+    if config.nuclei_enabled:
+        scan_pipeline += " → nuclei"
+    logger.info(f"Starting security scans ({scan_pipeline})")
     logger.info(f"Targets: {len(all_ips)} unique IPs")
     logger.info(f"Concurrency: {config.max_concurrent_hosts} workers")
     logger.info(f"Masscan rate: {config.masscan_rate} pps/host")
     total_pps = config.max_concurrent_hosts * config.masscan_rate
     logger.info(f"Max total PPS: {total_pps:,} ({config.max_concurrent_hosts} workers × {config.masscan_rate} pps)")
     logger.info(f"Timeout: {config.host_timeout_seconds} seconds per host")
+    if config.nuclei_enabled:
+        logger.info(f"Nuclei: enabled ({config.nuclei_scan_mode} mode, severity={config.nuclei_severity})")
     logger.info("=" * 80)
 
     start_time = datetime.now()
@@ -1007,7 +1012,13 @@ def main() -> None:
         output_dir=output_dir,
         max_workers=config.max_concurrent_hosts,
         timeout_seconds=config.host_timeout_seconds,
-        masscan_interface=config.masscan_interface
+        masscan_interface=config.masscan_interface,
+        nuclei_enabled=config.nuclei_enabled,
+        nuclei_binary=config.nuclei_binary,
+        nuclei_timeout=config.nuclei_timeout,
+        nuclei_severity=config.nuclei_severity,
+        nuclei_templates=config.nuclei_templates,
+        nuclei_scan_mode=config.nuclei_scan_mode
     )
 
     end_time = datetime.now()

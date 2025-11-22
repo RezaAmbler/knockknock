@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from scanner import HostScanResult, Port, SSHAuditResult
+from includes.scanner import HostScanResult, Port, SSHAuditResult
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,21 @@ CREATE TABLE IF NOT EXISTS ssh_audit (
     raw_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS nuclei_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    host_id INTEGER NOT NULL REFERENCES hosts(id),
+    template_id TEXT NOT NULL,
+    name TEXT,
+    severity TEXT,
+    type TEXT,
+    host TEXT,
+    port TEXT,
+    matched_at TEXT,
+    extracted_results TEXT,
+    timestamp TEXT,
+    raw_json TEXT
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_runs_finished_at ON runs(finished_at);
 CREATE INDEX IF NOT EXISTS idx_hosts_run_id ON hosts(run_id);
@@ -109,6 +124,8 @@ CREATE INDEX IF NOT EXISTS idx_hosts_ip ON hosts(ip);
 CREATE INDEX IF NOT EXISTS idx_ports_host_id ON ports(host_id);
 CREATE INDEX IF NOT EXISTS idx_ports_port ON ports(port);
 CREATE INDEX IF NOT EXISTS idx_ssh_audit_port_id ON ssh_audit(port_id);
+CREATE INDEX IF NOT EXISTS idx_nuclei_host_id ON nuclei_results(host_id);
+CREATE INDEX IF NOT EXISTS idx_nuclei_severity ON nuclei_results(severity);
 """
 
 
@@ -285,6 +302,34 @@ def record_run(
                                     raw_json
                                 )
                             )
+
+                # Insert Nuclei findings for this host
+                for nuclei_finding in host_result.nuclei_findings:
+                    # Serialize extracted results as JSON
+                    extracted_json = json.dumps(nuclei_finding.extracted_results) if nuclei_finding.extracted_results else None
+
+                    conn.execute(
+                        """
+                        INSERT INTO nuclei_results (
+                            host_id, template_id, name, severity, type, host, port,
+                            matched_at, extracted_results, timestamp, raw_json
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            host_id,
+                            nuclei_finding.template_id,
+                            nuclei_finding.name,
+                            nuclei_finding.severity,
+                            nuclei_finding.type,
+                            nuclei_finding.host,
+                            nuclei_finding.port,
+                            nuclei_finding.matched_at,
+                            extracted_json,
+                            nuclei_finding.timestamp,
+                            nuclei_finding.raw_json
+                        )
+                    )
 
         conn.close()
         logger.info(f"Recorded run {run_id} with {len(results)} hosts to database")

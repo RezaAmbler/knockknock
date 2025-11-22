@@ -50,6 +50,7 @@ class HostScanResult:
     status: str  # 'success', 'error', 'timeout'
     open_ports: List[Port] = field(default_factory=list)
     ssh_results: List[SSHAuditResult] = field(default_factory=list)
+    nuclei_findings: List = field(default_factory=list)  # List[NucleiFinding] - imported later to avoid circular deps
     error_message: Optional[str] = None
     nmap_xml_path: Optional[Path] = None
 
@@ -122,12 +123,31 @@ def run_masscan(
         # Debug: Log command before execution
         logger.debug(f"[{ip}] Executing masscan: {' '.join(cmd)}")
 
+        # Calculate estimated scan time
+        estimated_seconds = int(65535 / rate)
+        if estimated_seconds < 60:
+            time_str = f"{estimated_seconds} seconds"
+        else:
+            time_str = f"{estimated_seconds // 60} minutes"
+
+        logger.info(f"[{ip}] Starting masscan (may require sudo password, then ~{time_str} to scan 65,535 ports at {rate} pps)...")
+
+        # Flush output to ensure message appears before password prompt
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
+
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=timeout
         )
+
+        # Log immediately after subprocess completes (before parsing)
+        logger.info(f"[{ip}] Masscan execution completed (scanned 65,535 ports in ~{timeout}s max), now parsing results...")
+        sys.stdout.flush()
+        sys.stderr.flush()
 
         # masscan may return non-zero even on success, check if output file exists
         if not output_path.exists():
@@ -644,6 +664,42 @@ def scan_host(
     return result
 
 
+def _run_nuclei_for_target(args_tuple):
+    """
+    Wrapper function for running nuclei scan in parallel.
+
+    This needs to be at module level (not nested) so it can be pickled
+    by ProcessPoolExecutor.
+
+    Args:
+        args_tuple: Tuple of (ip, target, output_dir, nuclei_binary, nuclei_timeout,
+                              nuclei_severity, nuclei_templates)
+
+    Returns:
+        Tuple of (ip, target, findings_list, error_message)
+    """
+    from includes.nuclei_parser import parse_nuclei_jsonl
+    from includes.nuclei_runner import run_nuclei
+
+    ip, target, output_dir, nuclei_binary, nuclei_timeout, nuclei_severity, nuclei_templates = args_tuple
+    output_file = output_dir / f"nuclei-{ip}-{hash(target) % 100000}.jsonl"
+
+    success, error_msg = run_nuclei(
+        target=target,
+        nuclei_binary=nuclei_binary,
+        output_path=output_file,
+        timeout=nuclei_timeout,
+        severity_filter=nuclei_severity if nuclei_severity else None,
+        templates=nuclei_templates
+    )
+
+    if success:
+        findings = parse_nuclei_jsonl(output_file)
+        return ip, target, findings, None
+    else:
+        return ip, target, [], error_msg
+
+
 def scan_hosts_parallel(
     ips: List[str],
     masscan_binary: str,
@@ -655,7 +711,13 @@ def scan_hosts_parallel(
     output_dir: Path,
     max_workers: int,
     timeout_seconds: int,
-    masscan_interface: Optional[str] = None
+    masscan_interface: Optional[str] = None,
+    nuclei_enabled: bool = False,
+    nuclei_binary: str = 'nuclei',
+    nuclei_timeout: int = 300,
+    nuclei_severity: str = '',
+    nuclei_templates: Optional[str] = None,
+    nuclei_scan_mode: str = 'ips'
 ) -> List[HostScanResult]:
     """
     Scan multiple hosts in parallel using batched phase approach.
@@ -686,7 +748,9 @@ def scan_hosts_parallel(
     Returns:
         List of HostScanResult objects
     """
-    logger.info(f"Starting batched three-phase scan of {len(ips)} hosts with {max_workers} workers")
+    # Determine number of phases based on whether Nuclei is enabled
+    num_phases = "four-phase" if nuclei_enabled else "three-phase"
+    logger.info(f"Starting batched {num_phases} scan of {len(ips)} hosts with {max_workers} workers")
     logger.info(f"Masscan rate: {masscan_rate} pps/host → Max total PPS: {max_workers * masscan_rate}")
 
     # Calculate phase-specific timeouts
@@ -866,6 +930,87 @@ def scan_hosts_parallel(
     else:
         logger.info("=" * 80)
         logger.info("PHASE 3: Skipped - no SSH services detected")
+        logger.info("=" * 80)
+
+    # =========================================================================
+    # PHASE 4: NUCLEI - Vulnerability scanning (optional)
+    # =========================================================================
+    if nuclei_enabled:
+        from includes.nuclei_parser import parse_nuclei_jsonl
+        from includes.nuclei_runner import run_nuclei
+
+        # Build target list based on scan_mode
+        nuclei_targets = []
+        for ip, result in results_dict.items():
+            if result.status == 'success':
+                if nuclei_scan_mode == 'urls':
+                    # Build URLs from http/https ports
+                    for port in result.open_ports:
+                        # Check if this is an HTTP/HTTPS service
+                        is_http = (
+                            port.service in ['http', 'https'] or
+                            port.port in [80, 443, 8080, 8443]
+                        )
+                        if is_http:
+                            # Determine protocol
+                            protocol = 'https' if (
+                                port.port in [443, 8443] or
+                                port.service == 'https'
+                            ) else 'http'
+                            target_url = f"{protocol}://{ip}:{port.port}"
+                            nuclei_targets.append((ip, target_url))
+                else:
+                    # Scan IP directly
+                    nuclei_targets.append((ip, ip))
+
+        if nuclei_targets:
+            logger.info("=" * 80)
+            logger.info(f"PHASE 4: Running nuclei on {len(nuclei_targets)} targets ({nuclei_scan_mode} mode)")
+            logger.info("=" * 80)
+
+            # Run nuclei scans in parallel
+            future_to_target = {}
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                for ip, target in nuclei_targets:
+                    # Prepare arguments tuple for the module-level function
+                    args = (ip, target, output_dir, nuclei_binary, nuclei_timeout,
+                           nuclei_severity, nuclei_templates)
+                    future = executor.submit(_run_nuclei_for_target, args)
+                    future_to_target[future] = (ip, target)
+
+                # Collect nuclei results
+                completed_count = 0
+                total_count = len(nuclei_targets)
+                for future in as_completed(future_to_target):
+                    ip_target = future_to_target[future]
+                    ip, target = ip_target
+                    completed_count += 1
+                    progress = f"[{completed_count}/{total_count}]"
+
+                    try:
+                        ip, target, findings, error_msg = future.result(timeout=nuclei_timeout + 60)
+
+                        if error_msg:
+                            logger.warning(f"{progress} [{target}] nuclei: {error_msg}")
+                        else:
+                            if findings:
+                                # Append findings to the IP's result
+                                results_dict[ip].nuclei_findings.extend(findings)
+                                logger.info(f"{progress} [{target}] nuclei: {len(findings)} findings")
+                            else:
+                                logger.info(f"{progress} [{target}] nuclei: no vulnerabilities found")
+
+                    except TimeoutError:
+                        logger.error(f"{progress} [{target}] nuclei timed out")
+                    except Exception as e:
+                        logger.error(f"{progress} [{target}] nuclei exception: {e}")
+        else:
+            logger.info("=" * 80)
+            logger.info("PHASE 4: Skipped - no suitable targets for nuclei scanning")
+            logger.info("=" * 80)
+    else:
+        logger.info("=" * 80)
+        logger.info("PHASE 4: Nuclei disabled in configuration")
         logger.info("=" * 80)
 
     # Convert results dict to list

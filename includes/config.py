@@ -23,9 +23,10 @@ class Config:
             config_path: Path to config.yaml. If None, looks in script directory.
         """
         if config_path is None:
-            # Default to config.yaml in the same directory as this module
-            script_dir = Path(__file__).parent
-            config_path = script_dir / "config.yaml"
+            # Default to config.yaml in the conf/ directory at project root
+            # Path(__file__).parent is includes/, parent.parent is project root
+            project_root = Path(__file__).parent.parent
+            config_path = project_root / "conf" / "config.yaml"
         else:
             config_path = Path(config_path)
 
@@ -80,6 +81,38 @@ class Config:
     def ssh_ports(self) -> List[int]:
         """List of SSH ports to scan."""
         return self._config.get('ssh_audit', {}).get('ports', [22, 830])
+
+    # Nuclei settings
+    @property
+    def nuclei_enabled(self) -> bool:
+        """Whether Nuclei vulnerability scanning is enabled."""
+        return self._config.get('nuclei', {}).get('enabled', False)
+
+    @property
+    def nuclei_binary(self) -> str:
+        """Path to nuclei binary."""
+        return self._config.get('nuclei', {}).get('binary', 'nuclei')
+
+    @property
+    def nuclei_severity(self) -> str:
+        """Severity filter for Nuclei (comma-separated)."""
+        return self._config.get('nuclei', {}).get('severity', 'critical,high,medium')
+
+    @property
+    def nuclei_timeout(self) -> int:
+        """Timeout for Nuclei scan per host in seconds."""
+        return self._config.get('nuclei', {}).get('timeout', 300)
+
+    @property
+    def nuclei_templates(self) -> Optional[str]:
+        """Path to custom Nuclei templates directory."""
+        templates = self._config.get('nuclei', {}).get('templates', '')
+        return templates if templates else None
+
+    @property
+    def nuclei_scan_mode(self) -> str:
+        """Nuclei scan mode: 'ips' or 'urls'."""
+        return self._config.get('nuclei', {}).get('scan_mode', 'ips')
 
     # Concurrency and timeout settings
     @property

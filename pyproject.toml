@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knockknock"
+version = "1.0.0"
+description = "A production-quality command-line security scanning tool using masscan, nmap, ssh-audit, and nuclei"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [
+    {name = "KnockKnock Contributors"}
+]
+keywords = ["security", "scanner", "nmap", "masscan", "ssh-audit", "nuclei", "vulnerability", "network-security"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "Topic :: Security",
+    "Topic :: System :: Networking :: Monitoring",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "pyyaml>=5.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=22.0",
+    "flake8>=4.0",
+]
+
+[project.scripts]
+knockknock = "knock_knock:main"
+
+[project.urls]
+Homepage = "https://github.com/RezaAmbler/knockknock"
+Repository = "https://github.com/RezaAmbler/knockknock"
+Issues = "https://github.com/RezaAmbler/knockknock/issues"
+
+[tool.setuptools]
+packages = ["includes"]
+
+[tool.setuptools.package-data]
+"" = ["conf/*.yaml"]

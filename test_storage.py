@@ -10,8 +10,8 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from scanner import HostScanResult, Port, SSHAuditResult
-from storage import (
+from includes.scanner import HostScanResult, Port, SSHAuditResult
+from includes.storage import (
     RunMetadata,
     compute_hash,
     init_db,

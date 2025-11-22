@@ -11,7 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-from scanner import HostScanResult, Port, SSHAuditResult
+from includes.scanner import HostScanResult, Port, SSHAuditResult
+from includes.nuclei_parser import NucleiFinding
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,13 @@ class HTMLReportGenerator:
             'timed_out': 0,
             'total_open_ports': 0,
             'tcp_ports': 0,
-            'udp_ports': 0
+            'udp_ports': 0,
+            'total_nuclei_findings': 0,
+            'nuclei_critical': 0,
+            'nuclei_high': 0,
+            'nuclei_medium': 0,
+            'nuclei_low': 0,
+            'nuclei_info': 0
         }
 
         for result in results:
@@ -101,6 +108,21 @@ class HTMLReportGenerator:
                     stats['tcp_ports'] += 1
                 elif port.protocol == 'udp':
                     stats['udp_ports'] += 1
+
+            # Count Nuclei findings by severity
+            stats['total_nuclei_findings'] += len(result.nuclei_findings)
+            for finding in result.nuclei_findings:
+                severity = finding.severity.lower() if finding.severity else 'unknown'
+                if severity == 'critical':
+                    stats['nuclei_critical'] += 1
+                elif severity == 'high':
+                    stats['nuclei_high'] += 1
+                elif severity == 'medium':
+                    stats['nuclei_medium'] += 1
+                elif severity == 'low':
+                    stats['nuclei_low'] += 1
+                elif severity == 'info':
+                    stats['nuclei_info'] += 1
 
         return stats
 
@@ -238,6 +260,26 @@ class HTMLReportGenerator:
             display: inline-block;
             margin: 5px 0;
         }}
+        .nuclei-findings-section {{
+            margin: 15px 0;
+            padding: 15px;
+            background-color: #fef5e7;
+            border-left: 4px solid #e67e22;
+            border-radius: 3px;
+        }}
+        .nuclei-finding {{
+            background-color: #fff;
+            padding: 12px;
+            border-radius: 3px;
+            margin: 8px 0;
+        }}
+        .nuclei-finding code {{
+            font-family: monospace;
+            background-color: #ecf0f1;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }}
         .algorithm-list {{
             background-color: #fff;
             padding: 10px;
@@ -366,6 +408,53 @@ class HTMLReportGenerator:
                 <div class="label">UDP Ports</div>
                 <div class="value">{stats['udp_ports']}</div>
             </div>
+"""
+
+        # Add Nuclei findings section if any findings exist
+        if stats['total_nuclei_findings'] > 0:
+            html += f"""
+            <div class="summary-item" style="grid-column: span 2;">
+                <div class="label">Nuclei Findings</div>
+                <div class="value" style="color: #e74c3c;">{stats['total_nuclei_findings']}</div>
+            </div>
+"""
+            if stats['nuclei_critical'] > 0:
+                html += f"""
+            <div class="summary-item">
+                <div class="label">Critical</div>
+                <div class="value" style="color: #c0392b;">{stats['nuclei_critical']}</div>
+            </div>
+"""
+            if stats['nuclei_high'] > 0:
+                html += f"""
+            <div class="summary-item">
+                <div class="label">High</div>
+                <div class="value" style="color: #e74c3c;">{stats['nuclei_high']}</div>
+            </div>
+"""
+            if stats['nuclei_medium'] > 0:
+                html += f"""
+            <div class="summary-item">
+                <div class="label">Medium</div>
+                <div class="value" style="color: #e67e22;">{stats['nuclei_medium']}</div>
+            </div>
+"""
+            if stats['nuclei_low'] > 0:
+                html += f"""
+            <div class="summary-item">
+                <div class="label">Low</div>
+                <div class="value" style="color: #f39c12;">{stats['nuclei_low']}</div>
+            </div>
+"""
+            if stats['nuclei_info'] > 0:
+                html += f"""
+            <div class="summary-item">
+                <div class="label">Info</div>
+                <div class="value" style="color: #3498db;">{stats['nuclei_info']}</div>
+            </div>
+"""
+
+        html += """
         </div>
     </div>
 """
@@ -455,9 +544,12 @@ class HTMLReportGenerator:
         # Summary
         open_port_count = len(result.open_ports)
         ssh_count = len(result.ssh_results)
+        nuclei_count = len(result.nuclei_findings)
         summary = f"{open_port_count} open port{'s' if open_port_count != 1 else ''}"
         if ssh_count > 0:
             summary += f", {ssh_count} SSH endpoint{'s' if ssh_count != 1 else ''}"
+        if nuclei_count > 0:
+            summary += f", {nuclei_count} vulnerability finding{'s' if nuclei_count != 1 else ''}"
 
         html = f"""
         <div class="ip-section">
@@ -481,6 +573,10 @@ class HTMLReportGenerator:
         if result.ssh_results:
             for ssh_result in result.ssh_results:
                 html += self._html_ssh_audit(ssh_result)
+
+        # Show Nuclei findings
+        if result.nuclei_findings:
+            html += self._html_nuclei_findings(result.nuclei_findings)
 
         html += """
         </div>
@@ -611,6 +707,87 @@ class HTMLReportGenerator:
                 for warning in ssh_result.warnings:
                     html += f"""
                 <div class="warning">⚠️ {warning}</div>
+"""
+
+        html += """
+            </div>
+"""
+        return html
+
+    def _html_nuclei_findings(self, findings: List[NucleiFinding]) -> str:
+        """Generate HTML for Nuclei vulnerability findings."""
+        html = """
+            <div class="nuclei-findings-section">
+                <h4>Nuclei Vulnerability Findings</h4>
+"""
+
+        # Group findings by severity for better display
+        by_severity = defaultdict(list)
+        for finding in findings:
+            severity = finding.severity.lower() if finding.severity else 'unknown'
+            by_severity[severity].append(finding)
+
+        # Display in order: critical, high, medium, low, info, unknown
+        severity_order = ['critical', 'high', 'medium', 'low', 'info', 'unknown']
+        severity_colors = {
+            'critical': '#c0392b',
+            'high': '#e74c3c',
+            'medium': '#e67e22',
+            'low': '#f39c12',
+            'info': '#3498db',
+            'unknown': '#95a5a6'
+        }
+        severity_icons = {
+            'critical': '🔴',
+            'high': '🟠',
+            'medium': '🟡',
+            'low': '🟢',
+            'info': 'ℹ️',
+            'unknown': '❓'
+        }
+
+        for severity in severity_order:
+            if severity not in by_severity:
+                continue
+
+            severity_findings = by_severity[severity]
+            color = severity_colors.get(severity, '#95a5a6')
+            icon = severity_icons.get(severity, '❓')
+
+            html += f"""
+                <h5 style="color: {color};">{icon} {severity.upper()} ({len(severity_findings)})</h5>
+"""
+
+            for finding in severity_findings:
+                # Escape HTML in strings
+                name = finding.name.replace('<', '&lt;').replace('>', '&gt;') if finding.name else 'Unknown'
+                template_id = finding.template_id.replace('<', '&lt;').replace('>', '&gt;') if finding.template_id else 'Unknown'
+
+                html += f"""
+                <div class="nuclei-finding" style="border-left: 4px solid {color}; margin-left: 10px; padding-left: 10px; margin-bottom: 10px;">
+                    <p><strong>{name}</strong></p>
+                    <p><em>Template ID:</em> <code>{template_id}</code></p>
+"""
+
+                if finding.matched_at:
+                    matched_at = finding.matched_at.replace('<', '&lt;').replace('>', '&gt;')
+                    html += f"                    <p><em>Matched at:</em> <code>{matched_at}</code></p>\n"
+
+                if finding.type:
+                    html += f"                    <p><em>Type:</em> {finding.type}</p>\n"
+
+                if finding.extracted_results:
+                    html += "                    <p><em>Extracted Results:</em></p>\n"
+                    html += "                    <ul>\n"
+                    for result in finding.extracted_results[:5]:  # Limit to first 5
+                        result_escaped = str(result).replace('<', '&lt;').replace('>', '&gt;')
+                        html += f"                        <li>{result_escaped}</li>\n"
+                    if len(finding.extracted_results) > 5:
+                        html += f"                        <li><em>... and {len(finding.extracted_results) - 5} more</em></li>\n"
+                    html += "                    </ul>\n"
+
+                html += """
+                </div>
 """
 
         html += """
