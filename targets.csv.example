@@ -1,0 +1,3 @@
+device_name,wan_ip
+target001,203.0.113.100
+target002,203.0.113.200

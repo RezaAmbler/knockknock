@@ -91,7 +91,7 @@ check_python_version() {
 
 # Function to check system tools
 check_system_tools() {
-    echo -e "\n${BLUE}Checking system tools...${NC}"
+    echo -e "\n${BLUE}Checking required system tools...${NC}"
 
     local all_found=true
     local tools=("masscan" "nmap" "ssh-audit")
@@ -106,6 +106,17 @@ check_system_tools() {
             NEEDS_SYSTEM_TOOLS=true
         fi
     done
+
+    # Check optional tool: nuclei (for vulnerability scanning)
+    echo -e "\n${BLUE}Checking optional tools...${NC}"
+    if command_exists nuclei; then
+        local nuclei_version=$(nuclei -version 2>&1 | head -n1 || echo "unknown")
+        echo -e "${GREEN}✓ nuclei found${NC} - $nuclei_version"
+    else
+        echo -e "${YELLOW}! nuclei not found (optional - for vulnerability scanning)${NC}"
+        echo -e "  To install nuclei, visit: https://github.com/projectdiscovery/nuclei"
+        echo -e "  Or run: go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
+    fi
 
     if [ "$all_found" = false ]; then
         return 1
@@ -135,7 +146,7 @@ check_python_deps() {
 
 # Function to install system tools
 install_system_tools() {
-    echo -e "\n${YELLOW}Installing system tools...${NC}"
+    echo -e "\n${YELLOW}Installing required system tools...${NC}"
 
     # Detect OS
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -168,6 +179,126 @@ install_system_tools() {
         echo -e "${RED}Unsupported OS: $OSTYPE${NC}"
         return 1
     fi
+
+    # Ask about installing Nuclei (optional)
+    echo ""
+    echo -e "${BLUE}Nuclei is an optional vulnerability scanner that can enhance scanning.${NC}"
+    read -p "Install Nuclei? (requires Go) (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        install_nuclei
+    else
+        echo -e "${YELLOW}Skipping Nuclei installation${NC}"
+        echo -e "You can install it later from: https://github.com/projectdiscovery/nuclei"
+    fi
+}
+
+# Function to install Nuclei
+install_nuclei() {
+    echo -e "\n${BLUE}Installing Nuclei...${NC}"
+
+    # Check if Go is installed
+    if ! command_exists go; then
+        echo -e "${YELLOW}Go is not installed. Nuclei requires Go for installation.${NC}"
+        echo ""
+        echo "Installation options:"
+        echo "  1. Install Go from https://golang.org/dl/"
+        echo "  2. Download pre-built Nuclei binary from https://github.com/projectdiscovery/nuclei/releases"
+        echo ""
+        read -p "Do you want to download the pre-built binary? (y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            install_nuclei_binary
+        else
+            echo -e "${YELLOW}Skipping Nuclei installation${NC}"
+        fi
+        return
+    fi
+
+    echo "Installing Nuclei via Go..."
+    go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+
+    # Add GOPATH/bin to PATH hint if nuclei still not in path
+    if ! command_exists nuclei; then
+        local gopath=$(go env GOPATH)
+        echo -e "${YELLOW}Nuclei installed but not found in PATH${NC}"
+        echo "Add this to your ~/.bashrc or ~/.zshrc:"
+        echo -e "${GREEN}  export PATH=\$PATH:$gopath/bin${NC}"
+        echo ""
+        echo "Then run: source ~/.bashrc (or ~/.zshrc)"
+    else
+        echo -e "${GREEN}✓ Nuclei installed successfully${NC}"
+    fi
+}
+
+# Function to install pre-built Nuclei binary
+install_nuclei_binary() {
+    echo -e "\n${BLUE}Downloading pre-built Nuclei binary...${NC}"
+
+    local os_type=""
+    local arch=$(uname -m)
+
+    # Detect OS
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        os_type="linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        os_type="macOS"
+    else
+        echo -e "${RED}Unsupported OS for binary download: $OSTYPE${NC}"
+        return 1
+    fi
+
+    # Map architecture
+    case $arch in
+        x86_64)
+            arch="amd64"
+            ;;
+        arm64|aarch64)
+            arch="arm64"
+            ;;
+        *)
+            echo -e "${RED}Unsupported architecture: $arch${NC}"
+            return 1
+            ;;
+    esac
+
+    local download_url="https://github.com/projectdiscovery/nuclei/releases/latest/download/nuclei_${os_type}_${arch}.zip"
+    local temp_dir=$(mktemp -d)
+
+    echo "Downloading from: $download_url"
+    if command_exists curl; then
+        curl -L -o "$temp_dir/nuclei.zip" "$download_url"
+    elif command_exists wget; then
+        wget -O "$temp_dir/nuclei.zip" "$download_url"
+    else
+        echo -e "${RED}Neither curl nor wget found. Cannot download binary.${NC}"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    # Extract and install
+    if command_exists unzip; then
+        unzip -q "$temp_dir/nuclei.zip" -d "$temp_dir"
+        chmod +x "$temp_dir/nuclei"
+
+        # Try to install to /usr/local/bin
+        if sudo mv "$temp_dir/nuclei" /usr/local/bin/nuclei 2>/dev/null; then
+            echo -e "${GREEN}✓ Nuclei installed to /usr/local/bin/nuclei${NC}"
+        else
+            # Fallback to ~/.local/bin
+            mkdir -p "$HOME/.local/bin"
+            mv "$temp_dir/nuclei" "$HOME/.local/bin/nuclei"
+            echo -e "${GREEN}✓ Nuclei installed to ~/.local/bin/nuclei${NC}"
+            echo -e "${YELLOW}Add ~/.local/bin to your PATH if not already:${NC}"
+            echo -e "${GREEN}  export PATH=\$PATH:\$HOME/.local/bin${NC}"
+        fi
+    else
+        echo -e "${RED}unzip not found. Cannot extract binary.${NC}"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    rm -rf "$temp_dir"
 }
 
 # Function to setup virtual environment
