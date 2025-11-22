@@ -41,6 +41,7 @@ class PortSummaryRow:
     runs_count: int
     last_product: Optional[str] = None
     last_version: Optional[str] = None
+    ssh_issues: Optional[int] = None  # Count of SSH warnings + failures
 
 
 # SQL schema
@@ -334,7 +335,19 @@ def query_ports_summary(
                AND r2.finished_at >= ?
                AND r2.finished_at <= ?
              ORDER BY r2.finished_at DESC
-             LIMIT 1) as last_version
+             LIMIT 1) as last_version,
+            -- Get SSH issues count from most recent run
+            (SELECT s.issues_count FROM ssh_audit s
+             JOIN ports p2 ON s.port_id = p2.id
+             JOIN hosts h2 ON p2.host_id = h2.id
+             JOIN runs r2 ON h2.run_id = r2.id
+             WHERE p2.port = p.port
+               AND p2.protocol = p.protocol
+               AND h2.ip = h.ip
+               AND r2.finished_at >= ?
+               AND r2.finished_at <= ?
+             ORDER BY r2.finished_at DESC
+             LIMIT 1) as ssh_issues
         FROM ports p
         JOIN hosts h ON p.host_id = h.id
         JOIN runs r ON h.run_id = r.id
@@ -342,7 +355,7 @@ def query_ports_summary(
           AND r.finished_at <= ?
         """
 
-        params = [from_dt, to_dt, from_dt, to_dt, from_dt, to_dt]
+        params = [from_dt, to_dt, from_dt, to_dt, from_dt, to_dt, from_dt, to_dt]
 
         if host_filter:
             query += " AND (h.device_name LIKE ? OR h.ip LIKE ?)"
@@ -371,7 +384,8 @@ def query_ports_summary(
                 last_seen_at=row['last_seen_at'],
                 runs_count=row['runs_count'],
                 last_product=row['last_product'],
-                last_version=row['last_version']
+                last_version=row['last_version'],
+                ssh_issues=row['ssh_issues']
             ))
 
         conn.close()

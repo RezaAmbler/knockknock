@@ -445,7 +445,8 @@ def print_ports_table(rows: List[PortSummaryRow]) -> None:
         'last': 25,
         'runs': 6,
         'product': 18,
-        'version': 16
+        'version': 16,
+        'ssh': 10
     }
 
     # Ensure minimum widths for headers
@@ -462,7 +463,8 @@ def print_ports_table(rows: List[PortSummaryRow]) -> None:
         f"{'LAST_SEEN':<{col_widths['last']}} "
         f"{'RUNS':<{col_widths['runs']}} "
         f"{'PRODUCT':<{col_widths['product']}} "
-        f"{'VERSION':<{col_widths['version']}}"
+        f"{'VERSION':<{col_widths['version']}} "
+        f"{'SSH_ISSUES':<{col_widths['ssh']}}"
     )
     print(header)
     print("-" * len(header))
@@ -471,6 +473,7 @@ def print_ports_table(rows: List[PortSummaryRow]) -> None:
     for row in rows:
         product = (row.last_product or '')[:col_widths['product']-1]
         version = (row.last_version or '')[:col_widths['version']-1]
+        ssh_issues = str(row.ssh_issues) if row.ssh_issues is not None else ''
 
         print(
             f"{row.device_name:<{col_widths['device']}} "
@@ -481,7 +484,8 @@ def print_ports_table(rows: List[PortSummaryRow]) -> None:
             f"{row.last_seen_at:<{col_widths['last']}} "
             f"{row.runs_count:<{col_widths['runs']}} "
             f"{product:<{col_widths['product']}} "
-            f"{version:<{col_widths['version']}}"
+            f"{version:<{col_widths['version']}} "
+            f"{ssh_issues:<{col_widths['ssh']}}"
         )
 
     print()
@@ -496,16 +500,17 @@ def print_ports_csv(rows: List[PortSummaryRow]) -> None:
         rows: List of PortSummaryRow objects
     """
     # Print header
-    print("device_name,ip,port,protocol,first_seen_at,last_seen_at,runs_count,last_product,last_version")
+    print("device_name,ip,port,protocol,first_seen_at,last_seen_at,runs_count,last_product,last_version,ssh_issues")
 
     # Print rows
     for row in rows:
         product = row.last_product or ''
         version = row.last_version or ''
+        ssh_issues = row.ssh_issues if row.ssh_issues is not None else ''
         print(
             f"{row.device_name},{row.ip},{row.port},{row.protocol},"
             f"{row.first_seen_at},{row.last_seen_at},{row.runs_count},"
-            f"{product},{version}"
+            f"{product},{version},{ssh_issues}"
         )
 
 
