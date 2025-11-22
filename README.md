@@ -4,18 +4,25 @@ A production-quality command-line security scanning tool that uses a two-stage s
 
 ## Features
 
-- **Two-Stage Scanning**: Ultra-fast port discovery with masscan, followed by detailed nmap analysis
+- **Three-Stage Scanning Pipeline**: Ultra-fast port discovery with masscan, followed by detailed nmap analysis and SSH security auditing
   - Stage 1: masscan scans all 65,535 ports in ~75 seconds (at 1000 pps)
-  - Stage 2: nmap performs deep analysis on only the discovered open ports
+  - Stage 2: nmap performs deep analysis with SYN scan on only the discovered open ports
   - Stage 3: ssh-audit analyzes SSH security on detected SSH services
-- **Parallel Execution**: Scans multiple hosts concurrently for faster results
+- **Parallel Execution**: Scans multiple hosts concurrently with progress tracking
 - **Network Safety**: Configurable packet rate limits with PPS calculations to prevent network congestion
-- **Comprehensive Analysis**: Version detection, vulnerability scanning, and security auditing
-- **HTML Reports**: Generates clean, readable HTML reports with embedded CSS
+- **Comprehensive Analysis**: Version detection, vulnerability scanning, and SSH security auditing
+- **Historical Database Logging**: SQLite-based append-only logging of all scan results for trend analysis
+- **Multiple Report Types**:
+  - Port history reports (first/last seen, frequency)
+  - SSH security audit reports (warnings, critical failures)
+  - Comprehensive reports (both port + SSH data)
+  - Table and CSV output formats
+- **HTML Reports**: Generates clean, readable HTML reports with embedded CSS and SSH security findings
 - **Email Delivery**: Sends reports via SMTP with both embedded HTML and file attachment
+- **Debug Mode**: Comprehensive diagnostic logging for troubleshooting scan failures
 - **Flexible Configuration**: YAML-based configuration for all settings
 - **Robust Error Handling**: Gracefully handles timeouts, connection failures, and errors
-- **Cron-Ready**: Designed for automated weekly/daily scanning
+- **Cron-Ready**: Designed for automated weekly/daily scanning with database tracking
 
 ## sou Start
 
@@ -304,11 +311,37 @@ python3 knock_knock.py --targets targets.csv --html-report weekly-scan.html
 
 ### Command-Line Options
 
+#### Scanning Mode
 ```
---targets PATH          Path to CSV file with targets (required)
+--targets PATH          Path to CSV file with targets (required for scan mode)
 --output-dir PATH       Directory to save reports (default: /tmp/knockknock-YYYYMMDD-HHMMSS/)
 --html-report NAME      Filename for HTML report (default: knock-knock-YYYYMMDD-HHMMSS.html)
 --send-email            Send email with report (requires valid SMTP config)
+--test-email            Send a test email and exit (validates SMTP configuration)
+--quiet                 Reduce log output (only show warnings and errors)
+--debug                 Enable debug logging (shows commands, detailed errors, diagnostics)
+```
+
+#### Database Logging
+```
+--db-path PATH          Path to SQLite database (enables DB logging, overrides config)
+--no-db                 Explicitly disable database logging (overrides config)
+```
+
+#### Reporting Mode
+```
+--report TYPE           Generate report from database
+                        Choices: ports, ssh-audit, all
+  ports                 Port history report (first/last seen, runs count)
+  ssh-audit             SSH security findings (warnings, critical failures)
+  all                   Comprehensive report (ports + SSH audit)
+
+--from DATE             Start datetime for report range (ISO-8601: YYYY-MM-DDTHH:MM:SSZ)
+--to DATE               End datetime for report range (ISO-8601: YYYY-MM-DDTHH:MM:SSZ)
+--host FILTER           Filter report by hostname or IP (optional)
+--port NUMBER           Filter report by port number (optional)
+--output FORMAT         Output format for reports
+                        Choices: table (default), csv
 ```
 
 ### Exit Codes
@@ -354,7 +387,11 @@ python3 knock_knock.py --targets targets.csv --no-db
 
 ### Viewing Historical Reports
 
-Query the database for historical port information across time ranges:
+Query the database for historical information across time ranges. Three report types are available:
+
+#### 1. Port History Report (`--report ports`)
+
+Shows port observation history (when ports were first/last seen, how often):
 
 ```bash
 # Show all open ports observed in January 2025
@@ -365,48 +402,98 @@ python3 knock_knock.py --report ports \
 
 # Show ports for a specific host
 python3 knock_knock.py --report ports \
-  --from 2025-01-01T00:00:00Z \
-  --to   2025-01-31T23:59:59Z \
   --host site1-fw1 \
   --db-path /var/lib/knockknock/knockknock.db
 
 # Show only port 22 (SSH) across all hosts
 python3 knock_knock.py --report ports \
-  --from 2025-01-01T00:00:00Z \
-  --to   2025-01-31T23:59:59Z \
   --port 22 \
   --db-path /var/lib/knockknock/knockknock.db
 
 # Export to CSV format
 python3 knock_knock.py --report ports \
-  --from 2025-01-01T00:00:00Z \
-  --to   2025-01-31T23:59:59Z \
   --output csv \
-  --db-path /var/lib/knockknock/knockknock.db > ports-january.csv
+  --db-path /var/lib/knockknock/knockknock.db > ports-report.csv
 ```
 
-### Report Output
-
-The ports report shows:
-
-- **Hostname** and **IP address**
-- **Port** and **Protocol**
-- **First Seen**: Earliest scan in time range where port was observed
-- **Last Seen**: Most recent scan in time range where port was observed
-- **Runs Count**: Number of scans in time range that detected this port
-- **Product** and **Version**: From most recent scan (if detected)
+**Ports report shows:**
+- Hostname and IP address
+- Port and Protocol
+- First Seen / Last Seen timestamps
+- Runs Count (how many scans detected this port)
+- Product and Version (from most recent scan)
 
 Example output:
-
 ```
 HOSTNAME        IP           PORT PROTO FIRST_SEEN              LAST_SEEN               RUNS PRODUCT          VERSION
 --------------  -----------  ---- ----- ----------------------- ----------------------- ---- ---------------  --------------
 site1-fw1       192.0.2.10   22   tcp   2025-01-01T01:00:05Z    2025-01-31T23:00:10Z    124  OpenSSH          9.5p1
 site1-fw1       192.0.2.10   443  tcp   2025-01-01T01:00:05Z    2025-01-31T23:00:10Z    124  nginx            1.24.0
-site2-fw1       198.51.100.20 22  tcp   2025-01-15T00:15:02Z    2025-01-31T23:00:08Z    68   OpenSSH          8.9p1
 
-Total: 3 unique port(s)
+Total: 2 unique port(s)
 ```
+
+#### 2. SSH Security Audit Report (`--report ssh-audit`)
+
+Shows SSH security findings (warnings and critical failures):
+
+```bash
+# Show SSH security issues for all hosts
+python3 knock_knock.py --report ssh-audit \
+  --db-path /var/lib/knockknock/knockknock.db
+
+# Show SSH issues for specific host in date range
+python3 knock_knock.py --report ssh-audit \
+  --from 2025-01-01T00:00:00Z \
+  --to   2025-01-31T23:59:59Z \
+  --host site1-fw1 \
+  --db-path /var/lib/knockknock/knockknock.db
+
+# Export SSH audit findings to CSV
+python3 knock_knock.py --report ssh-audit \
+  --output csv \
+  --db-path /var/lib/knockknock/knockknock.db > ssh-issues.csv
+```
+
+**SSH audit report shows:**
+- Hostname, IP, and port
+- Scan date (most recent)
+- SSH banner
+- Total issues count (warnings + failures)
+- Top 3 warnings (e.g., weak modulus, encrypt-and-MAC mode)
+- Top 3 critical failures (e.g., NSA-backdoored elliptic curves)
+
+Example output:
+```
+HOSTNAME    IP              PORT  SCAN_DATE                 BANNER                ISSUES
+----------  --------------  ----  ------------------------  --------------------  ------
+site1-fw1   192.0.2.10      22    2025-01-20T15:30:45Z      SSH-2.0-OpenSSH_8.9   6
+  ⚠️  WARNINGS: KEX diffie-hellman-group14-sha256: 2048-bit modulus only provides 112-bits
+  🔴 FAILURES: KEX ecdh-sha2-nistp256: using elliptic curves suspected as backdoored by NSA
+
+Total: 1 SSH endpoint(s)
+```
+
+#### 3. Comprehensive Report (`--report all`)
+
+Shows both port history AND SSH security audit in one report:
+
+```bash
+# Generate comprehensive report
+python3 knock_knock.py --report all \
+  --from 2025-01-01T00:00:00Z \
+  --to   2025-01-31T23:59:59Z \
+  --db-path /var/lib/knockknock/knockknock.db
+
+# Comprehensive CSV export
+python3 knock_knock.py --report all \
+  --output csv \
+  --db-path /var/lib/knockknock/knockknock.db > complete-report.csv
+```
+
+**All report shows:**
+- PORT HISTORY section (same as `--report ports`)
+- SSH SECURITY AUDIT section (same as `--report ssh-audit`)
 
 ### Time Range Defaults
 
