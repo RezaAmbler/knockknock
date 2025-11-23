@@ -763,10 +763,18 @@ class HTMLReportGenerator:
                 name = finding.name.replace('<', '&lt;').replace('>', '&gt;') if finding.name else 'Unknown'
                 template_id = finding.template_id.replace('<', '&lt;').replace('>', '&gt;') if finding.template_id else 'Unknown'
 
+                # Generate hyperlink for CVE IDs
+                template_id_display = template_id
+                if finding.template_id and finding.template_id.upper().startswith('CVE-'):
+                    # Extract CVE ID and create NVD link
+                    cve_id = finding.template_id.upper()
+                    nvd_url = f"https://nvd.nist.gov/vuln/detail/{cve_id}"
+                    template_id_display = f'<a href="{nvd_url}" target="_blank" style="color: #3498db; text-decoration: underline;">{template_id}</a>'
+
                 html += f"""
                 <div class="nuclei-finding" style="border-left: 4px solid {color}; margin-left: 10px; padding-left: 10px; margin-bottom: 10px;">
                     <p><strong>{name}</strong></p>
-                    <p><em>Template ID:</em> <code>{template_id}</code></p>
+                    <p><em>Template ID:</em> <code>{template_id_display}</code></p>
 """
 
                 if finding.matched_at:
