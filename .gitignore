@@ -1,6 +1,7 @@
 # Claude Code files
 CLAUDE.md
 .claude/
+AGENTS.md
 
 # Python
 __pycache__/
@@ -50,3 +51,18 @@ targets-full.csv
 
 # Database files
 db/
+*.db
+
+# Web application
+.env
+data/
+test.db
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/

@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - DATABASE_URL=sqlite:////data/db/knockknock.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - REPORTS_DIR=/data/reports
+    volumes:
+      - ../data/db:/data/db
+      - ../data/reports:/data/reports
+      - ../data/logs:/data/logs
+      - ../conf:/app/conf
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      - DATABASE_URL=sqlite:////data/db/knockknock.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - REPORTS_DIR=/data/reports
+    volumes:
+      - ../data/db:/data/db
+      - ../data/reports:/data/reports
+      - ../data/logs:/data/logs
+      - ../conf:/app/conf
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  beat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    command: celery -A web.jobs.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=sqlite:////data/db/knockknock.db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ../data/db:/data/db
+      - ../conf:/app/conf
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+volumes:
+  redis-data:

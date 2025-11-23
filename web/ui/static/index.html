@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knock Knock Web</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 16px;
+        }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .api-link {
+            display: inline-block;
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 4px;
+            margin: 10px 10px 10px 0;
+        }
+        .api-link:hover {
+            background: #0056b3;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .feature {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .feature h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            color: #333;
+        }
+        .feature p {
+            margin: 0;
+            color: #666;
+            font-size: 14px;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔐 Knock Knock Web</h1>
+        <p class="subtitle">Production Network Security Scanner</p>
+    </div>
+
+    <div class="card">
+        <h2>Welcome!</h2>
+        <p>The web application is running successfully. The frontend UI is under development.</p>
+        <p>Use the REST API to interact with the scanner:</p>
+        <a href="/docs" class="api-link">📚 API Documentation (Swagger)</a>
+        <a href="/api/health" class="api-link">🏥 Health Check</a>
+    </div>
+
+    <div class="card">
+        <h2>Features</h2>
+        <div class="features">
+            <div class="feature">
+                <h3>🎯 Target Management</h3>
+                <p>Organize scan targets with IP/DNS addresses and metadata</p>
+            </div>
+            <div class="feature">
+                <h3>📋 Target Lists</h3>
+                <p>Group targets into lists for batch scanning</p>
+            </div>
+            <div class="feature">
+                <h3>⏰ Scheduled Scans</h3>
+                <p>Recurring scans with cron expressions or intervals</p>
+            </div>
+            <div class="feature">
+                <h3>⚡ Ad-Hoc Scans</h3>
+                <p>Run immediate scans on demand</p>
+            </div>
+            <div class="feature">
+                <h3>📊 Analytics Dashboard</h3>
+                <p>View scan statistics and trends over time</p>
+            </div>
+            <div class="feature">
+                <h3>📧 Email Reports</h3>
+                <p>Automated email delivery of scan results</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Quick Start</h2>
+        <p><strong>1. Register/Login:</strong></p>
+        <code>POST /api/auth/register</code> or <code>POST /api/auth/login</code>
+
+        <p style="margin-top: 15px;"><strong>2. Create a target:</strong></p>
+        <code>POST /api/targets</code>
+
+        <p style="margin-top: 15px;"><strong>3. Run a scan:</strong></p>
+        <code>POST /api/scans</code>
+
+        <p style="margin-top: 15px;"><strong>4. View results:</strong></p>
+        <code>GET /api/scans/{scan_id}</code>
+
+        <p style="margin-top: 20px;">
+            <strong>Default credentials:</strong> admin@example.com / admin
+        </p>
+    </div>
+
+    <div class="card" style="background: #fff3cd; border-left: 4px solid #ffc107;">
+        <p style="margin: 0;"><strong>⚠️ Production Deployment:</strong></p>
+        <p style="margin: 10px 0 0 0;">Remember to change the default admin password and set a strong <code>SECRET_KEY</code> in your environment variables!</p>
+    </div>
+</body>
+</html>
